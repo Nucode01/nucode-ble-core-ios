@@ -71,7 +71,12 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     }
 
     func maximumWriteValueLength(for type: WriteMode) -> Int {
-        cbPeripheral.maximumWriteValueLength(for: type == .withResponse ? .withResponse : .withoutResponse)
+        // 응답 있는 write 의 CoreBluetooth 값은 긴 쓰기(prepare write) 한도 512 라서 기기가 거절한다. 설계 §6 대로 MTU - 3 으로 맞춘다
+        let withoutResponse = cbPeripheral.maximumWriteValueLength(for: .withoutResponse)
+        if type == .withResponse {
+            return min(cbPeripheral.maximumWriteValueLength(for: .withResponse), withoutResponse)
+        }
+        return withoutResponse
     }
 
     func setNotifyValue(_ enabled: Bool, for characteristic: CharacteristicRef) {

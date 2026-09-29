@@ -38,7 +38,7 @@ xcodebuild test -project ContractDeviceTests.xcodeproj -scheme ContractDeviceTes
   -destination "id=$DEVICE_ID" -derivedDataPath "$BUILD/dd" -allowProvisioningUpdates > "$LOG" 2>&1
 build_code=$?
 
-grep -o 'CONTRACT|.*' "$LOG" | awk '!seen[$0]++' || true
+grep -o 'CONTRACT|.*' "$LOG" || true
 verdicts="$(grep -c 'CONTRACT|ios|.*|verdict|' "$LOG" || true)"
 failed="$(grep -c 'CONTRACT|ios|.*|verdict|FAIL' "$LOG" || true)"
 
