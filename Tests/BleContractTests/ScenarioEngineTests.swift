@@ -101,7 +101,8 @@ struct ScenarioEngineTests {
 
     func run(_ scenario: Scenario, _ script: FakeBackend.Script = .normal) async -> ScenarioReport {
         let report = await ScenarioEngine(backend: FakeBackend(script), clock: Self.clock).run(scenario)
-        report.lines().forEach { print($0) }
+        // 러너 자체 시험이라 플랫폼 이름을 fake 로 남긴다. ios 로 쓰면 4단계 게이트가 라이브러리 결과로 오인한다
+        report.lines(platform: "fake").forEach { print($0) }
         return report
     }
 
