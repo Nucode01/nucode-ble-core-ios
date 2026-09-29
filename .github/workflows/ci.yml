@@ -32,3 +32,21 @@ jobs:
 
       - name: Test
         run: BLE_CONTRACT_DIR="$GITHUB_WORKSPACE/nucode-ble-core-root/contract" swift test
+
+  macos:
+    # 이 Mac 의 self-hosted runner(nucode-mac-ios, 2026-09-29 등록). GitHub macOS runner 는 비공개 저장소에서
+    # 10배로 차감되어 쓰지 않는다. Mac 이 꺼져 있으면 이 job 은 대기열에서 기다린다.
+    # 4단계에서 CoreBluetooth 코드가 들어오면 이 job 만 남기고 위 Linux job 은 뺀다
+    runs-on: [self-hosted, macOS, xcode]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: pdev-jay/nucode-ble-core
+          ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
+          path: nucode-ble-core-root
+
+      - name: Test
+        run: BLE_CONTRACT_DIR="$GITHUB_WORKSPACE/nucode-ble-core-root/contract" swift test
