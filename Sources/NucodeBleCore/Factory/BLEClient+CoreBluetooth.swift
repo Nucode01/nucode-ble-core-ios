@@ -5,7 +5,7 @@ extension BLEClient {
     public convenience init(options: BLEOptions = BLEOptions()) {
         RestoreIdentifierGuard.claimOrTrap(options.restoreIdentifier)
         let identifier = options.restoreIdentifier
-        self.init(options: options, environment: .bundle(.main)) {
+        self.init(options: options, environment: .bundle(.main), clock: ScaledClock.realtime) {
             CoreBluetoothCentral(restoreIdentifier: identifier)
         }
     }

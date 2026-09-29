@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 구조 규칙 시험(R1). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
+// 구조 규칙 시험(R1·R2). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
 // 규칙 함수는 [패키지: [상대경로: 소스]] 를 받는 순수 함수이고, 실제 소스와 자기 점검이 같은 함수를 부른다.
 // 위반 한 줄: "<규칙 id>: <상대경로>:<줄> <from> -> <to> (<이름>)". 규칙 id 는 시험 이름과 같다(게이트가 센다).
 
@@ -471,6 +471,94 @@ private enum RuleScanner {
         }
         return violations
     }
+
+    // MARK: R2 시간을 포트로
+
+    /// 안쪽 층이 쓰면 안 되는 시간 API 식별자(목록에 더하기만 한다)
+    static let timeIdentifiers: Set<String> = [
+        "ContinuousClock", "SuspendingClock", "Clock", "DispatchTime", "DispatchWallTime", "Date", "Timer",
+        "asyncAfter", "makeTimerSource", "CFAbsoluteTimeGetCurrent", "CACurrentMediaTime", "mach_absolute_time",
+        "mach_continuous_time", "clock_gettime", "systemUptime", "timeIntervalSinceNow", "timeIntervalSince1970",
+        "timeIntervalSinceReferenceDate", "usleep", "nanosleep",
+    ]
+
+    /// 한 줄에서 쓴 시간 API 이름들(출현마다 하나)
+    static func timeAPIs(in line: String) -> [String] {
+        var found = identifiers(in: line).filter { timeIdentifiers.contains($0) }
+        let member = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])(Task|Thread)\s*\.\s*sleep(?![A-Za-z0-9_])"#)
+        let free = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])sleep\s*\("#)
+        let range = NSRange(line.startIndex..., in: line)
+        for m in member.matches(in: line, range: range) {
+            found.append("\(line[Range(m.range(at: 1), in: line)!]).sleep")
+        }
+        for m in free.matches(in: line, range: range) {
+            let prefix = String(line[..<Range(m.range, in: line)!.lowerBound])
+            let trimmed = prefix.reversed().drop(while: { $0 == " " || $0 == "\t" })
+            if trimmed.first == "." { continue }
+            if identifiers(in: prefix).last == "func" { continue }
+            found.append("sleep")
+        }
+        return found
+    }
+
+    /// `class|struct|enum|actor|extension X: …clockPort…` 머리의 타입 이름(한 줄 머리만 본다)
+    static func clockAdoption(_ line: String, clockPort: String) -> String? {
+        let head = try! NSRegularExpression(pattern: #"^(?:@\w+(?:\([^)]*\))?\s+|(?:public|package|internal|final|open|private|fileprivate)\s+)*(?:class|struct|enum|actor|extension)\s+([A-Za-z_]\w*)\s*(?:<[^>]*>)?\s*:\s*([^{]*)"#)
+        let range = NSRange(line.startIndex..., in: line)
+        guard let m = head.firstMatch(in: line, range: range),
+              let name = Range(m.range(at: 1), in: line),
+              let clause = Range(m.range(at: 2), in: line),
+              identifiers(in: String(line[clause])).contains(clockPort) else { return nil }
+        return String(line[name])
+    }
+
+    static func domainUsesClockPort(_ sources: PackageSources, _ classification: PackageClassification, clockPort: String = "BLEClock") -> [String] {
+        let id = "R2_domainUsesClockPort"
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // a: 안쪽 층은 시간 API 를 직접 쓰지 않는다
+        for entry in a.files where classification.isInnerLayer(entry.package) {
+            for (number, line) in numbered(entry.lines) {
+                for api in timeAPIs(in: line) {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) uses \(api)")
+                }
+            }
+        }
+
+        // b: 포트가 Ports 에 정확히 한 번 선언된다
+        let declared = (a.declarations[clockPort] ?? []).filter { $0.kind == "protocol" && classification.kind(of: $0.package) == .ports }.count
+        if declared == 0 {
+            violations.append("\(id): no \(clockPort) declaration in ports")
+        } else if declared > 1 {
+            violations.append("\(id): \(clockPort) declared \(declared) times")
+        }
+
+        // c: 포트 구현은 Driver 에만 있고, 하나 이상 있다
+        var driverImplementations = 0
+        for entry in a.files {
+            for (number, line) in numbered(entry.lines) {
+                guard let type = clockAdoption(line, clockPort: clockPort) else { continue }
+                if classification.kind(of: entry.package) == .driver {
+                    driverImplementations += 1
+                } else {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) implements \(clockPort) (\(type))")
+                }
+            }
+        }
+        if driverImplementations == 0 {
+            violations.append("\(id): no \(clockPort) implementation in driver")
+        }
+
+        // d: 도메인이 포트를 하나 이상 참조한다
+        let referenced = a.files.contains { entry in
+            classification.kind(of: entry.package) == .domain && entry.lines.contains { identifiers(in: $0).contains(clockPort) }
+        }
+        if !referenced {
+            violations.append("\(id): domain does not reference \(clockPort)")
+        }
+        return violations
+    }
 }
 
 final class ArchitectureRulesTests: XCTestCase {
@@ -518,7 +606,77 @@ final class ArchitectureRulesTests: XCTestCase {
         report(RuleScanner.onlyFactoryConstructsDriver(try loadSources(), .project))
     }
 
+    func test_R2_domainUsesClockPort() throws {
+        report(RuleScanner.domainUsesClockPort(try loadSources(), .project))
+    }
+
     // MARK: 자기 점검 — 같은 규칙 함수를 합성 소스에 부른다(이름에 규칙 id 를 넣지 않는다)
+
+    func test_clockRuleScannerSelfCheck() {
+        let c = PackageClassification(model: ["M"], ports: ["P"], driver: ["D"], factory: ["F"], domain: ["Dom"])
+        let port = "protocol BLEClock {}"
+        let impl = "struct RealClock: BLEClock {}"
+        let use = "func f(_ c: any BLEClock) { try await c.sleep(milliseconds: 5) }"
+
+        func check(model: String = "struct ModelThing {}", ports: String = port, driver: String = impl,
+                   factory: String = "struct FactoryThing {}", dom: String = use) -> [String] {
+            RuleScanner.domainUsesClockPort([
+                "M": ["M/X.swift": model],
+                "P": ["P/X.swift": ports],
+                "D": ["D/X.swift": driver],
+                "F": ["F/X.swift": factory],
+                "Dom": ["Dom/X.swift": dom],
+            ], c)
+        }
+
+        XCTAssertEqual(check(), [])
+
+        // a: 안쪽 층의 시간 API
+        let domainViolations = [
+            "let t = ContinuousClock.now",
+            "try await Task.sleep(for: .seconds(1))",
+            "try await Task . sleep(nanoseconds: 1)",
+            "DispatchQueue.main.asyncAfter(deadline: .now() + 1) {}",
+            "let d = Date()",
+            "sleep(1)",
+            "Thread.sleep(forTimeInterval: 1)",
+        ]
+        for body in domainViolations {
+            XCTAssertEqual(check(dom: use + "\n" + body).count, 1, body)
+        }
+        XCTAssertEqual(check(dom: use + "\n" + "sleep(1)").first, "R2_domainUsesClockPort: Dom/X.swift:2 Dom uses sleep")
+        XCTAssertEqual(check(dom: use + "\nlet t = ContinuousClock.now").first, "R2_domainUsesClockPort: Dom/X.swift:2 Dom uses ContinuousClock")
+        XCTAssertEqual(check(dom: use + "\nlet t = (ContinuousClock.now, Date())").count, 2)
+        XCTAssertEqual(check(ports: port + "\nlet t = ContinuousClock.now").count, 1)
+        XCTAssertEqual(check(model: "let t = ContinuousClock.now").count, 1)
+        let allowed = [
+            "// Task.sleep",
+            "let s = \"ContinuousClock\"",
+            "func cancelTimers() {}",
+            "func sleep(milliseconds: Int) async throws",
+            "try await clock.sleep(milliseconds: 1)",
+        ]
+        for body in allowed {
+            XCTAssertEqual(check(dom: use + "\n" + body), [], body)
+        }
+        XCTAssertEqual(check(driver: impl + "\nlet t = ContinuousClock.now\nfunc g() async throws { try await Task.sleep(for: .seconds(1)) }"), [])
+        XCTAssertEqual(check(factory: "let t = ContinuousClock.now\nfunc g() async throws { try await Task.sleep(for: .seconds(1)) }"), [])
+
+        // b: 선언은 Ports 에 정확히 한 번
+        XCTAssertEqual(check(ports: "struct Other {}"), ["R2_domainUsesClockPort: no BLEClock declaration in ports"])
+        XCTAssertEqual(check(ports: port + "\n" + "protocol BLEClock {}"), ["R2_domainUsesClockPort: BLEClock declared 2 times"])
+
+        // c: 구현은 Driver 에만, 하나 이상
+        XCTAssertEqual(check(ports: port + "\nstruct PortClock: BLEClock {}"), ["R2_domainUsesClockPort: P/X.swift:2 P implements BLEClock (PortClock)"])
+        XCTAssertEqual(check(dom: use + "\nextension Foo: Sendable, BLEClock {}"), ["R2_domainUsesClockPort: Dom/X.swift:2 Dom implements BLEClock (Foo)"])
+        XCTAssertEqual(check(driver: "struct Other {}"), ["R2_domainUsesClockPort: no BLEClock implementation in driver"])
+        XCTAssertEqual(check(dom: use + "\nlet c: BLEClock"), [])
+        XCTAssertEqual(check(dom: use + "\nfunc h(_ c: any BLEClock) {}"), [])
+        XCTAssertEqual(check(driver: impl + "\nfinal class Other: NSObject, BLEClock {}"), [])
+
+        // d: 도메인이 포트를 참조한다
+        XCTAssertEqual(check(dom: "struct X {}"), ["R2_domainUsesClockPort: domain does not reference BLEClock"])
+    }
 
     func test_ruleScannerSelfCheck() {
         let c = PackageClassification(model: ["M"], ports: ["P"], driver: ["D"], factory: ["F"], domain: ["A", "B", "Dom"])

@@ -1,0 +1,1 @@
+API breakage: constructor BLEClient.init(options:environment:clock:centralFactory:) has removed default argument from parameter 2

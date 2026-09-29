@@ -8,7 +8,7 @@ public final class BLEClient: Sendable {
     package init(
         options: BLEOptions = BLEOptions(),
         environment: BLEEnvironment,
-        clock: any BLEClock = ScaledClock.realtime,
+        clock: any BLEClock,
         centralFactory: @escaping @BLECoreActor @Sendable () -> any CentralPort
     ) {
         runtime = runOnCore {
