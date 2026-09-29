@@ -10,12 +10,25 @@ public struct Characteristic: Sendable, Equatable {
     public let runnerOnly: Bool
 }
 
+/// 기기 정의 `services` 의 항목
+public struct Service: Sendable, Equatable {
+    public let symbol: String
+    public let uuid: String
+    /// 기기가 광고(광고 패킷이나 스캔 응답)에 이 UUID 를 넣는가
+    public let advertised: Bool
+}
+
 /// `peripherals/<이름>.json`
 public struct PeripheralProfile: Sendable, Equatable {
     public let name: String
     public let summary: String?
     public let advertisedName: String
+    /// 스캔 필터가 쓰는 서비스 기호 이름. 정의 파일에 없으면 비어 있다
+    public let services: [String: Service]
     public let characteristics: [String: Characteristic]
+
+    /// `services` 레인이 남길 수 있는 기호 이름 전체(`runnerOnly` 포함)
+    public var characteristicSymbols: Set<String> { Set(characteristics.keys) }
 
     static let knownProperties: Set<String> = ["read", "write", "writeWithoutResponse", "notify", "indicate"]
 
@@ -23,7 +36,7 @@ public struct PeripheralProfile: Sendable, Equatable {
     public static func parse(_ data: Data, expectedName: String) throws -> PeripheralProfile {
         let source = "peripherals/\(expectedName).json"
         let root = try JSONObject(try JSONValue.parse(data, source: source), path: source)
-        try root.only(["format", "name", "summary", "advertisedName", "characteristics"])
+        try root.only(["format", "name", "summary", "advertisedName", "services", "characteristics"])
 
         let format = try root.int("format")
         guard format == Scenario.formatVersion else {
@@ -32,6 +45,20 @@ public struct PeripheralProfile: Sendable, Equatable {
         let name = try root.string("name")
         guard name == expectedName else {
             throw ContractError("\(source): name \"\(name)\" does not match file name \"\(expectedName)\"")
+        }
+
+        var services: [String: Service] = [:]
+        if root.has("services") {
+            let objs = try root.object("services")
+            for symbol in objs.fields.keys.sorted() {
+                let s = try objs.object(symbol)
+                try s.only(["uuid", "advertised"])
+                let uuid = try s.string("uuid")
+                guard UUID(uuidString: uuid) != nil else {
+                    throw ContractError("\(s.path).uuid: not a UUID: \"\(uuid)\"")
+                }
+                services[symbol] = Service(symbol: symbol, uuid: uuid, advertised: try s.bool("advertised"))
+            }
         }
 
         let chars = try root.object("characteristics")
@@ -56,6 +83,7 @@ public struct PeripheralProfile: Sendable, Equatable {
             name: name,
             summary: try root.optionalString("summary"),
             advertisedName: try root.string("advertisedName"),
+            services: services,
             characteristics: result
         )
     }

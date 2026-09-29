@@ -34,6 +34,52 @@ public enum Step: Sendable, Equatable {
     case wait(AwaitStep)
     case device(DeviceEvent)
     case sleep(ms: Int)
+    /// sim 전용. 가짜 플랫폼의 어댑터를 바꾼다
+    case adapter(AdapterValue)
+    /// 앞선 async 호출의 호출자를 취소한다(전달 계획 §5-3). 끝나지 않았으면 `result`에 `<호출> cancelled`를 남긴다
+    case cancel(name: String)
+}
+
+/// `adapter` 레인·`adapter` 단계의 값
+public enum AdapterValue: String, Sendable, CaseIterable {
+    case unknown = "Unknown"
+    case ready = "Ready"
+    case poweredOff = "PoweredOff"
+    case resetting = "Resetting"
+    case unsupported = "Unsupported"
+    case unauthorizedCanRequest = "Unauthorized(true)"
+    case unauthorizedDenied = "Unauthorized(false)"
+}
+
+/// write 의 나누기. 공개 API `BleChunking`
+public enum WriteChunking: Sendable, Equatable {
+    case automatic
+    case disabled
+    case fixed(bytes: Int)
+}
+
+/// `startScan` 의 `filter`. 서비스는 기기 정의 `services` 의 기호 이름이 아니라 풀어 낸 UUID 로 둔다
+public struct ScanFilter: Sendable, Equatable {
+    public let name: String?
+    /// 기호 이름(`nus`)과 UUID. 비어 있으면 서비스 필터 없음
+    public let services: [ServiceRef]
+
+    public init(name: String? = nil, services: [ServiceRef] = []) {
+        self.name = name
+        self.services = services
+    }
+
+    public static let none = ScanFilter()
+}
+
+public struct ServiceRef: Sendable, Equatable {
+    public let symbol: String
+    public let uuid: String
+
+    public init(symbol: String, uuid: String) {
+        self.symbol = symbol
+        self.uuid = uuid
+    }
 }
 
 public struct CallStep: Sendable, Equatable {
@@ -53,9 +99,13 @@ public enum CallAction: Sendable, Equatable {
     case connect(autoReconnect: Bool)
     case disconnect
     case read(Characteristic)
-    case write(Characteristic, bytes: [UInt8], withResponse: Bool)
+    case write(Characteristic, bytes: [UInt8], withResponse: Bool, chunking: WriteChunking = .automatic)
     case subscribe(Characteristic)
     case unsubscribe(Characteristic)
+    case startScan(ScanFilter)
+    case stopScan
+    case snapshot
+    case close
 
     /// `result` 레인 항목의 앞부분. `read probe.value`
     public var label: String {
@@ -63,9 +113,13 @@ public enum CallAction: Sendable, Equatable {
         case .connect: "connect"
         case .disconnect: "disconnect"
         case .read(let c): "read \(c.symbol)"
-        case .write(let c, _, _): "write \(c.symbol)"
+        case .write(let c, _, _, _): "write \(c.symbol)"
         case .subscribe(let c): "subscribe \(c.symbol)"
         case .unsubscribe(let c): "unsubscribe \(c.symbol)"
+        case .startScan: "startScan"
+        case .stopScan: "stopScan"
+        case .snapshot: "snapshot"
+        case .close: "close"
         }
     }
 }
@@ -84,6 +138,10 @@ public enum AwaitCondition: Sendable, Equatable {
     case state(pattern: String)
     case notify(count: Int)
     case result(name: String)
+    /// `active`·`adapter`·`scan`·`services` 레인의 마지막 기록이 패턴과 맞는다
+    case value(Lane, pattern: String)
+    /// `found` 기록이 count 개 이상
+    case found(count: Int)
 }
 
 public enum DeviceEvent: Sendable, Equatable {
@@ -91,6 +149,7 @@ public enum DeviceEvent: Sendable, Equatable {
     case linkDropHide(ms: Int)
     case notify(count: Int)
     case readNotify(on: Bool)
+    case rxCheck
 
     public var name: String {
         switch self {
@@ -98,6 +157,7 @@ public enum DeviceEvent: Sendable, Equatable {
         case .linkDropHide: "linkDropHide"
         case .notify: "notify"
         case .readNotify: "readNotify"
+        case .rxCheck: "rxCheck"
         }
     }
 }
@@ -142,11 +202,6 @@ extension Scenario {
             throw ContractError("\(source).peripheral: cannot load \"\(peripheralName)\": \(error)")
         }
 
-        var parser = StepParser(profile: profile)
-        let steps = try root.array("steps").enumerated().map { i, v in
-            try parser.parse(v, path: "\(source).steps[\(i)]")
-        }
-
         let expectObj = try root.object("expect")
         var expect: [Lane: [String]] = [:]
         for key in expectObj.fields.keys.sorted() {
@@ -154,6 +209,12 @@ extension Scenario {
                 throw ContractError("\(expectObj.path): unknown lane \"\(key)\"")
             }
             expect[lane] = try expectObj.stringArray(key)
+        }
+
+        // 확장 레인을 기다리는 단계는 그 레인이 expect 에 있어야 하므로 expect 를 먼저 읽는다
+        var parser = StepParser(profile: profile, runsOn: runsOn, expectLanes: Set(expect.keys))
+        let steps = try root.array("steps").enumerated().map { i, v in
+            try parser.parse(v, path: "\(source).steps[\(i)]")
         }
 
         let diffIgnore = try root.optionalStringArray("diffIgnore") ?? []
@@ -191,23 +252,48 @@ extension Scenario {
 /// 단계 목록을 순서대로 읽는다. async 이름은 앞에서 선언된 것만 await 할 수 있다
 private struct StepParser {
     let profile: PeripheralProfile
+    let runsOn: [RunTarget]
+    let expectLanes: Set<Lane>
     var asyncNames: Set<String> = []
+    var cancelledNames: Set<String> = []
 
-    init(profile: PeripheralProfile) {
+    init(profile: PeripheralProfile, runsOn: [RunTarget], expectLanes: Set<Lane>) {
         self.profile = profile
+        self.runsOn = runsOn
+        self.expectLanes = expectLanes
     }
 
     mutating func parse(_ value: JSONValue, path: String) throws -> Step {
         let o = try JSONObject(value, path: path)
-        let kinds = ["call", "await", "device", "sleep"].filter(o.has)
+        let kinds = ["call", "await", "device", "sleep", "adapter", "cancel"].filter(o.has)
         guard kinds.count == 1 else {
             let keys = o.fields.keys.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
-            throw ContractError("\(path): unknown step (need exactly one of call/await/device/sleep, got keys \(keys))")
+            throw ContractError("\(path): unknown step (need exactly one of call/await/device/sleep/adapter/cancel, got keys \(keys))")
         }
         switch kinds[0] {
         case "call": return .call(try parseCall(o))
         case "await": return .wait(try parseAwait(o))
         case "device": return .device(try parseDevice(o))
+        case "cancel":
+            try o.only(["cancel"])
+            let name = try o.string("cancel")
+            guard asyncNames.contains(name) else {
+                throw ContractError("\(path).cancel: no earlier async call named \"\(name)\"")
+            }
+            guard cancelledNames.insert(name).inserted else {
+                throw ContractError("\(path).cancel: \"\(name)\" is already cancelled")
+            }
+            return .cancel(name: name)
+        case "adapter":
+            try o.only(["adapter"])
+            guard !runsOn.contains(.device) else {
+                throw ContractError("\(path): adapter steps are sim-only, but runsOn includes device")
+            }
+            let raw = try o.string("adapter")
+            guard let value = AdapterValue(rawValue: raw) else {
+                throw ContractError("\(path).adapter: unknown value \"\(raw)\"")
+            }
+            return .adapter(value)
         default:
             try o.only(["sleep"])
             let ms = try o.int("sleep")
@@ -232,19 +318,52 @@ private struct StepParser {
             let c = try characteristic(o)
             action = name == "read" ? .read(c) : name == "subscribe" ? .subscribe(c) : .unsubscribe(c)
         case "write":
-            try o.only(common.union(["char", "text", "hex", "mode"]))
+            try o.only(common.union(["char", "text", "hex", "pattern", "mode", "chunking", "chunkBytes"]))
             let c = try characteristic(o)
+            let given = ["text", "hex", "pattern"].filter(o.has)
+            guard given.count == 1 else {
+                throw ContractError("\(o.path): write needs exactly one of \"text\", \"hex\" or \"pattern\"")
+            }
             let bytes: [UInt8]
-            switch (try o.optionalString("text"), try o.optionalString("hex")) {
-            case (let text?, nil): bytes = Array(text.utf8)
-            case (nil, let hex?): bytes = try parseHex(hex, path: "\(o.path).hex")
-            default: throw ContractError("\(o.path): write needs exactly one of \"text\" or \"hex\"")
+            switch given[0] {
+            case "text": bytes = Array(try o.string("text").utf8)
+            case "hex": bytes = try parseHex(try o.string("hex"), path: "\(o.path).hex")
+            default:
+                let n = try o.int("pattern")
+                guard n % 256 == 0, (256...65536).contains(n) else {
+                    throw ContractError("\(o.path).pattern: must be a multiple of 256 from 256 to 65536, got \(n)")
+                }
+                bytes = (0..<n).map { UInt8($0 % 256) }
             }
             let mode = try o.optionalString("mode") ?? "withResponse"
             guard mode == "withResponse" || mode == "withoutResponse" else {
                 throw ContractError("\(o.path).mode: unknown value \"\(mode)\"")
             }
-            action = .write(c, bytes: bytes, withResponse: mode == "withResponse")
+            let chunkingName = try o.optionalString("chunking") ?? "automatic"
+            let chunking: WriteChunking
+            switch chunkingName {
+            case "automatic", "disabled":
+                guard !o.has("chunkBytes") else {
+                    throw ContractError("\(o.path).chunkBytes: only allowed with chunking \"fixed\"")
+                }
+                chunking = chunkingName == "automatic" ? .automatic : .disabled
+            case "fixed":
+                guard o.has("chunkBytes") else {
+                    throw ContractError("\(o.path): chunking \"fixed\" requires \"chunkBytes\"")
+                }
+                let n = try o.int("chunkBytes")
+                guard n >= 1 else { throw ContractError("\(o.path).chunkBytes: must be >= 1") }
+                chunking = .fixed(bytes: n)
+            default:
+                throw ContractError("\(o.path).chunking: unknown value \"\(chunkingName)\"")
+            }
+            action = .write(c, bytes: bytes, withResponse: mode == "withResponse", chunking: chunking)
+        case "startScan":
+            try o.only(common.union(["filter"]))
+            action = .startScan(try scanFilter(o))
+        case "stopScan", "snapshot", "close":
+            try o.only(common)
+            action = name == "stopScan" ? .stopScan : name == "snapshot" ? .snapshot : .close
         default:
             throw ContractError("\(o.path).call: unknown call \"\(name)\"")
         }
@@ -281,6 +400,17 @@ private struct StepParser {
                 throw ContractError("\(o.path).name: no earlier async call named \"\(name)\"")
             }
             condition = .result(name: name)
+        case "active", "adapter", "scan", "services":
+            try o.only(["await", "is", "timeoutMs"])
+            let lane = Lane(rawValue: kind)!
+            try requireInExpect(lane, o)
+            condition = .value(lane, pattern: try o.string("is"))
+        case "found":
+            try o.only(["await", "count", "timeoutMs"])
+            try requireInExpect(.found, o)
+            let count = try o.int("count")
+            guard count >= 1 else { throw ContractError("\(o.path).count: must be >= 1") }
+            condition = .found(count: count)
         default:
             throw ContractError("\(o.path).await: unknown condition \"\(kind)\"")
         }
@@ -306,9 +436,37 @@ private struct StepParser {
         case "readNotify":
             try o.only(["device", "on"])
             return .readNotify(on: try o.bool("on"))
+        case "rxCheck":
+            try o.only(["device"])
+            try requireInExpect(.peer, o, what: "rxCheck")
+            return .rxCheck
         default:
             throw ContractError("\(o.path).device: unknown device event \"\(kind)\"")
         }
+    }
+
+    private func requireInExpect(_ lane: Lane, _ o: JSONObject, what: String? = nil) throws {
+        guard !lane.isExtension || expectLanes.contains(lane) else {
+            throw ContractError("\(o.path): \(what ?? "awaiting") needs lane \"\(lane.rawValue)\" in expect")
+        }
+    }
+
+    private func scanFilter(_ o: JSONObject) throws -> ScanFilter {
+        guard o.has("filter") else { return .none }
+        let f = try o.object("filter")
+        try f.only(["name", "services"])
+        var refs: [ServiceRef] = []
+        if f.has("services") {
+            let symbols = try f.stringArray("services")
+            guard !symbols.isEmpty else { throw ContractError("\(f.path).services: must not be empty") }
+            for symbol in symbols {
+                guard let service = profile.services[symbol] else {
+                    throw ContractError("\(f.path).services: unknown service symbol \"\(symbol)\" in peripheral \"\(profile.name)\"")
+                }
+                refs.append(ServiceRef(symbol: symbol, uuid: service.uuid))
+            }
+        }
+        return ScanFilter(name: try f.optionalString("name"), services: refs)
     }
 
     private func characteristic(_ o: JSONObject) throws -> Characteristic {

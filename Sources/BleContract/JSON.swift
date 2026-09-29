@@ -49,6 +49,42 @@ enum JSONValue: Sendable, Equatable, Decodable {
         }
     }
 
+    /// 하위 값을 다시 파일 내용처럼 읽히게 한다(형식 시험 사례가 실제 파일과 같은 읽기 경로를 타게 한다)
+    func serialized() throws -> Data {
+        var out = ""
+        try write(to: &out)
+        return Data(out.utf8)
+    }
+
+    private func write(to out: inout String) throws {
+        switch self {
+        case .null: out += "null"
+        case .bool(let b): out += b ? "true" : "false"
+        case .int(let i): out += String(i)
+        case .double(let d): out += String(d)
+        case .string(let s):
+            let data = try JSONSerialization.data(withJSONObject: [s], options: [])
+            let arr = String(decoding: data, as: UTF8.self)
+            out += String(arr.dropFirst().dropLast())
+        case .array(let a):
+            out += "["
+            for (i, v) in a.enumerated() {
+                if i > 0 { out += "," }
+                try v.write(to: &out)
+            }
+            out += "]"
+        case .object(let o):
+            out += "{"
+            for (i, k) in o.keys.sorted().enumerated() {
+                if i > 0 { out += "," }
+                try JSONValue.string(k).write(to: &out)
+                out += ":"
+                try o[k]!.write(to: &out)
+            }
+            out += "}"
+        }
+    }
+
     var typeName: String {
         switch self {
         case .null: "null"

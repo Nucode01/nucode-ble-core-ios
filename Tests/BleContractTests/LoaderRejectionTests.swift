@@ -25,6 +25,10 @@ struct LoaderRejectionTests {
         """
     }
 
+    static func write(_ fields: String) -> String {
+        scenario(steps: #"{ "call": "write", "char": "nus.rx", \#(fields) }"#)
+    }
+
     struct Bad: Sendable, CustomTestStringConvertible {
         let label: String
         let json: String
@@ -40,7 +44,7 @@ struct LoaderRejectionTests {
         ("unknown step kind", scenario(steps: #"{ "wait": 100 }"#), "unknown step"),
         ("two step kinds", scenario(steps: #"{ "call": "connect", "sleep": 1 }"#), "unknown step"),
         ("unknown call", scenario(steps: #"{ "call": "bond" }"#), #"unknown call "bond""#),
-        ("unknown await", scenario(steps: #"{ "await": "services" }"#), #"unknown condition "services""#),
+        ("unknown await", scenario(steps: #"{ "await": "gatt" }"#), #"unknown condition "gatt""#),
         ("unknown device event", scenario(steps: #"{ "device": "reboot" }"#), #"unknown device event "reboot""#),
         ("id mismatch", scenario(id: "other"), #"id "other" does not match file name "inline""#),
         ("format 2", scenario(format: "2"), "unsupported format 2"),
@@ -59,6 +63,28 @@ struct LoaderRejectionTests {
         ("runsOn outside set", scenario().replacingOccurrences(of: #"["sim"]"#, with: #"["cloud"]"#), #"runsOn: unknown value "cloud""#),
         ("platforms outside set", scenario(extra: #", "platforms": ["web"]"#), #"platforms: unknown value "web""#),
         ("unknown lane", scenario().replacingOccurrences(of: #"{ "result""#, with: #"{ "events""#), #"unknown lane "events""#),
+        ("adapter step with device", scenario(steps: #"{ "adapter": "PoweredOff" }"#).replacingOccurrences(of: #"["sim"]"#, with: #"["sim", "device"]"#), "sim-only"),
+        ("adapter unknown value", scenario(steps: #"{ "adapter": "Off" }"#), #"unknown value "Off""#),
+        ("adapter Unauthorized without canRequest", scenario(steps: #"{ "adapter": "Unauthorized" }"#), #"unknown value "Unauthorized""#),
+        ("pattern not multiple of 256", write(#""pattern": 100"#), "multiple of 256"),
+        ("pattern too large", write(#""pattern": 65792"#), "multiple of 256"),
+        ("pattern with text", write(#""pattern": 256, "text": "a""#), "exactly one of"),
+        ("fixed without chunkBytes", write(#""text": "a", "chunking": "fixed""#), #"requires "chunkBytes""#),
+        ("chunkBytes with automatic", write(#""text": "a", "chunkBytes": 20"#), "only allowed with"),
+        ("chunkBytes 0", write(#""text": "a", "chunking": "fixed", "chunkBytes": 0"#), "must be >= 1"),
+        ("unknown chunking", write(#""text": "a", "chunking": "lots""#), #"unknown value "lots""#),
+        ("pattern on read", scenario(steps: #"{ "call": "read", "char": "probe.value", "pattern": 256 }"#), #"unknown key(s) "pattern""#),
+        ("scan filter unknown service", scenario(steps: #"{ "call": "startScan", "filter": { "services": ["nope"] } }"#), #"unknown service symbol "nope""#),
+        ("scan filter characteristic symbol", scenario(steps: #"{ "call": "startScan", "filter": { "services": ["nus.rx"] } }"#), #"unknown service symbol "nus.rx""#),
+        ("scan filter empty services", scenario(steps: #"{ "call": "startScan", "filter": { "services": [] } }"#), "must not be empty"),
+        ("scan filter unknown key", scenario(steps: #"{ "call": "startScan", "filter": { "rssi": 1 } }"#), #"unknown key(s) "rssi""#),
+        ("stopScan with filter", scenario(steps: #"{ "call": "stopScan", "filter": {} }"#), #"unknown key(s) "filter""#),
+        ("await found without lane", scenario(steps: #"{ "await": "found", "count": 1 }"#), #"needs lane "found""#),
+        ("await scan without lane", scenario(steps: #"{ "await": "scan", "is": "Idle" }"#), #"needs lane "scan""#),
+        ("await found with is", scenario(steps: #"{ "await": "found", "is": "probe" }"#, expect: #"{ "found": [] }"#), #"unknown key(s) "is""#),
+        ("await peer", scenario(steps: #"{ "await": "peer", "count": 1 }"#, expect: #"{ "peer": [] }"#), #"unknown condition "peer""#),
+        ("rxCheck without peer lane", scenario(steps: #"{ "device": "rxCheck" }"#), #"needs lane "peer""#),
+        ("diffIgnore unknown lane", scenario(extra: #", "diffIgnore": ["gatt|x"]"#), "diffIgnore[0]"),
         ("missing steps", scenario().replacingOccurrences(of: #""steps""#, with: #""stepz""#), #"unknown key(s) "stepz""#),
     ]
 
@@ -87,5 +113,41 @@ struct LoaderRejectionTests {
         let rx = try #require(try Contract.probe().characteristics["nus.rx"])
         #expect(s.steps[0] == .call(CallStep(action: .write(rx, bytes: [0x0A, 0xFF], withResponse: true), asyncName: nil, timeoutMs: 15_000)))
         #expect(s.steps[1] == .call(CallStep(action: .write(rx, bytes: [0x68, 0x69], withResponse: false), asyncName: nil, timeoutMs: 15_000)))
+    }
+
+    @Test func writeExtensions() throws {
+        let s = try Contract.scenario(Self.scenario(steps: """
+            { "call": "write", "char": "nus.rx", "pattern": 512, "chunking": "fixed", "chunkBytes": 20 },
+            { "call": "write", "char": "nus.rx", "pattern": 256, "chunking": "disabled" }
+            """))
+        let rx = try #require(try Contract.probe().characteristics["nus.rx"])
+        let pattern = (0..<512).map { UInt8($0 % 256) }
+        #expect(s.steps[0] == .call(CallStep(action: .write(rx, bytes: pattern, withResponse: true, chunking: .fixed(bytes: 20)))))
+        #expect(s.steps[1] == .call(CallStep(action: .write(rx, bytes: Array(pattern[0..<256]), withResponse: true, chunking: .disabled))))
+    }
+
+    @Test func scanFilterResolvesServiceUuids() throws {
+        let s = try Contract.scenario(Self.scenario(steps: """
+            { "call": "startScan", "filter": { "name": "N", "services": ["probe"] } },
+            { "call": "startScan", "filter": {} },
+            { "call": "startScan" }
+            """))
+        let probe = try Contract.probe().services["probe"]
+        let ref = ServiceRef(symbol: "probe", uuid: try #require(probe).uuid)
+        #expect(s.steps[0] == .call(CallStep(action: .startScan(ScanFilter(name: "N", services: [ref])))))
+        #expect(s.steps[1] == .call(CallStep(action: .startScan(.none))))
+        #expect(s.steps[2] == .call(CallStep(action: .startScan(.none))))
+    }
+
+    @Test func newWaitsAndAdapterStep() throws {
+        let s = try Contract.scenario(Self.scenario(steps: """
+            { "adapter": "Unauthorized(false)" },
+            { "await": "adapter", "is": "Unauth*" },
+            { "await": "found", "count": 2 },
+            { "await": "services", "is": "{}" }
+            """, expect: #"{ "adapter": [], "found": [], "services": [] }"#))
+        #expect(s.steps[0] == .adapter(.unauthorizedDenied))
+        #expect(s.steps[1] == .wait(AwaitStep(condition: .value(.adapter, pattern: "Unauth*"))))
+        #expect(s.steps[2] == .wait(AwaitStep(condition: .found(count: 2))))
     }
 }

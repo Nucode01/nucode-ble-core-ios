@@ -43,6 +43,10 @@ public struct ContractDirectory: Sendable {
         try MatchCase.parseAll(read(url.appendingPathComponent("format-tests/match-cases.json")))
     }
 
+    public func loadLoadCases() throws -> [LoadCase] {
+        try LoadCase.parseAll(read(url.appendingPathComponent("format-tests/load-cases.json")))
+    }
+
     private func read(_ file: URL) throws -> Data {
         do {
             return try Data(contentsOf: file)
@@ -91,5 +95,68 @@ public struct MatchCase: Sendable, Equatable, CustomStringConvertible {
                 note: try o.optionalString("note")
             )
         }
+    }
+}
+
+/// `format-tests/load-cases.json`의 사례 하나. 시나리오 사례는 `probe.json`으로 읽고 파일 이름을 "x"로,
+/// 기기 정의 사례는 파일 이름을 "p"로 준다. 실제 파일과 같은 검증 경로(`Scenario.parse`·`PeripheralProfile.parse`)를 탄다
+public struct LoadCase: Sendable, Equatable, CustomStringConvertible {
+    public enum Kind: String, Sendable {
+        case scenario, peripheral
+    }
+
+    public let kind: Kind
+    public let note: String
+    public let valid: Bool
+    let body: Data
+
+    public var description: String { "\(kind.rawValue): \(note)" }
+
+    /// 받아들였으면 nil, 거부했으면 그 오류
+    public func attempt(probe: PeripheralProfile) -> ContractError? {
+        do {
+            switch kind {
+            case .scenario:
+                _ = try Scenario.parse(body, expectedId: "x") { name in
+                    guard name == probe.name else { throw ContractError("no peripheral \(name)") }
+                    return probe
+                }
+            case .peripheral:
+                _ = try PeripheralProfile.parse(body, expectedName: "p")
+            }
+            return nil
+        } catch let error as ContractError {
+            return error
+        } catch {
+            return ContractError("\(error)")
+        }
+    }
+
+    static func parseAll(_ data: Data) throws -> [LoadCase] {
+        let source = "format-tests/load-cases.json"
+        let root = try JSONObject(try JSONValue.parse(data, source: source), path: source)
+        try root.only(["format", "summary", "scenarioCases", "peripheralCases"])
+        let format = try root.int("format")
+        guard format == Scenario.formatVersion else {
+            throw ContractError("\(source): unsupported format \(format)")
+        }
+        var cases: [LoadCase] = []
+        for (key, kind) in [("scenarioCases", Kind.scenario), ("peripheralCases", Kind.peripheral)] {
+            guard root.has(key) else { continue }
+            for (i, v) in try root.array(key).enumerated() {
+                let o = try JSONObject(v, path: "\(source).\(key)[\(i)]")
+                try o.only(["note", "valid", kind.rawValue])
+                guard let raw = o.fields[kind.rawValue] else {
+                    throw ContractError("\(o.path): missing required key \"\(kind.rawValue)\"")
+                }
+                cases.append(LoadCase(
+                    kind: kind,
+                    note: try o.string("note"),
+                    valid: try o.bool("valid"),
+                    body: try raw.serialized()
+                ))
+            }
+        }
+        return cases
     }
 }

@@ -49,6 +49,25 @@ struct ContractFilesTests {
         }
     }
 
+    @Test func loadCasesMatchTheirValidity() throws {
+        let probe = try Contract.probe()
+        let cases = try Contract.dir.loadLoadCases()
+        #expect(cases.filter { $0.kind == .scenario }.count >= 43)
+        #expect(cases.filter { $0.kind == .peripheral }.count >= 7)
+        for c in cases {
+            let error = c.attempt(probe: probe)
+            #expect((error == nil) == c.valid, "\(c) -> \(error?.message ?? "accepted")")
+        }
+    }
+
+    @Test func probeServices() throws {
+        let probe = try Contract.probe()
+        #expect(probe.services["nus"]?.advertised == true)
+        #expect(probe.services["probe"]?.advertised == false)
+        #expect(probe.characteristics["probe.control"]?.properties == ["read", "write"])
+        #expect(probe.characteristicSymbols == ["nus.rx", "nus.tx", "probe.control", "probe.value"])
+    }
+
     @Test func locateHonorsEnvironment() {
         let root = URL(fileURLWithPath: "/work/ios")
         #expect(ContractDirectory.locate(packageRoot: root, environment: [:]).url.path == "/work/contract")
