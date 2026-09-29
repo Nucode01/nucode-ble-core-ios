@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 구조 규칙 시험(R1·R2). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
+// 구조 규칙 시험(R1·R2·R3). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
 // 규칙 함수는 [패키지: [상대경로: 소스]] 를 받는 순수 함수이고, 실제 소스와 자기 점검이 같은 함수를 부른다.
 // 위반 한 줄: "<규칙 id>: <상대경로>:<줄> <from> -> <to> (<이름>)". 규칙 id 는 시험 이름과 같다(게이트가 센다).
 
@@ -12,8 +12,9 @@ private struct PackageClassification {
     var driver: Set<String>
     var factory: Set<String>
     var domain: Set<String>
+    var core: Set<String> = []
 
-    enum Kind { case model, ports, driver, factory, domain, unclassified }
+    enum Kind { case model, ports, driver, factory, domain, core, unclassified }
 
     func kind(of package: String) -> Kind {
         if model.contains(package) { return .model }
@@ -21,6 +22,7 @@ private struct PackageClassification {
         if driver.contains(package) { return .driver }
         if factory.contains(package) { return .factory }
         if domain.contains(package) { return .domain }
+        if core.contains(package) { return .core }
         return .unclassified
     }
 
@@ -30,10 +32,10 @@ private struct PackageClassification {
         return k == .domain || k == .unclassified
     }
 
-    /// 플랫폼 타입·Driver 참조 규칙을 적용할 안쪽 층 = Model·Ports·domain (Android INNER_LAYERS 와 같은 뜻)
+    /// 플랫폼 타입·Driver 참조 규칙을 적용할 안쪽 층 = Model·Ports·core·domain (Android INNER_LAYERS 와 같은 뜻)
     func isInnerLayer(_ package: String) -> Bool {
         let k = kind(of: package)
-        return k == .model || k == .ports || k == .domain || k == .unclassified
+        return k == .model || k == .ports || k == .core || k == .domain || k == .unclassified
     }
 
     static let project = PackageClassification(
@@ -41,7 +43,8 @@ private struct PackageClassification {
         ports: ["Ports"],
         driver: ["Driver"],
         factory: ["Factory"],
-        domain: ["Adapter", "Client", "Concurrency", "Connection", "Gatt", "Restore", "Scan", "Session"]
+        domain: ["Adapter", "Client", "Concurrency", "Connection", "Gatt", "Restore", "Scan", "Session"],
+        core: ["Core"]
     )
 }
 
@@ -559,6 +562,179 @@ private enum RuleScanner {
         }
         return violations
     }
+
+    // MARK: R3 연결 상태 기계
+
+    /// Core 에서 쓰면 안 되는 async·동시성·입출력 API 식별자(시간 API 는 timeAPIs 가 본다. 목록에 더하기만 한다)
+    static let coreForbiddenIdentifiers: Set<String> = [
+        "async", "await", "actor", "Task", "TaskGroup", "withTaskGroup", "withThrowingTaskGroup", "withTaskCancellationHandler",
+        "withCheckedContinuation", "withCheckedThrowingContinuation", "withUnsafeContinuation", "withUnsafeThrowingContinuation",
+        "AsyncStream", "AsyncThrowingStream", "AsyncSequence", "MainActor", "BLECoreActor", "globalActor", "nonisolated", "escaping",
+        "DispatchQueue", "DispatchGroup", "DispatchSemaphore", "DispatchWorkItem", "Thread", "NSLock", "NSRecursiveLock", "Mutex",
+        "OSAllocatedUnfairLock", "RunLoop", "OperationQueue", "NotificationCenter",
+        "print", "debugPrint", "NSLog", "os_log", "Logger", "FileManager", "FileHandle", "URLSession", "UserDefaults", "ProcessInfo", "Bundle",
+    ]
+
+    /// domain 이 스스로 정하면 안 되는 연결 상태 토큰(implicit member)
+    static let connectionStateMembers = ["discoveringServices", "configuring", "recovering", "disconnecting"]
+
+    /// core 층 전체에 대한 순수성 검사(b~d2). 메시지 id 는 부른 규칙 id.
+    static func coreIsPure(id: String, sources: PackageSources, classification: PackageClassification) -> [String] {
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // b: Model·Core 밖 내부 패키지를 참조하지 않는다
+        for e in a.edges where classification.kind(of: e.from) == .core {
+            let k = classification.kind(of: e.to)
+            if k != .model && k != .core {
+                violations.append("\(id): \(e.location) \(e.from) -> \(e.to) (\(e.name))")
+            }
+        }
+
+        let importRegex = try! NSRegularExpression(pattern: #"^\s*(?:@\w+\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z_]\w*)"#)
+        let classRegex = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])class\s+([A-Za-z_]\w*)"#)
+        let staticVarRegex = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])static\s+(?:(?:public|package|internal|private|fileprivate|nonisolated|final|@\w+)(?:\([^)]*\))?\s+)*var\s+([A-Za-z_]\w*)"#)
+        let globalVarRegex = try! NSRegularExpression(pattern: #"^(?:(?:public|package|internal|private|fileprivate|nonisolated|@\w+)(?:\([^)]*\))?\s+)*var\s+([A-Za-z_]\w*)"#)
+
+        for entry in a.files where classification.kind(of: entry.package) == .core {
+            for (number, line) in numbered(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                let at = "\(id): \(entry.file):\(number) \(entry.package)"
+                // c: 플랫폼 타입
+                if let m = importRegex.firstMatch(in: line, range: range), let r = Range(m.range(at: 1), in: line), line[r] != "Foundation" {
+                    violations.append("\(at) imports \(line[r])")
+                }
+                for name in identifiers(in: line) where name.hasPrefix("CB") && name.dropFirst(2).first.map({ $0 >= "A" && $0 <= "Z" }) == true {
+                    violations.append("\(at) -> CoreBluetooth (\(name))")
+                }
+                // d: async·동시성·입출력·시간
+                for name in identifiers(in: line) where coreForbiddenIdentifiers.contains(name) {
+                    violations.append("\(at) uses \(name)")
+                }
+                for api in timeAPIs(in: line) {
+                    violations.append("\(at) uses \(api)")
+                }
+                // d2: 가변 공유 상태
+                for m in classRegex.matches(in: line, range: range) {
+                    let name = String(line[Range(m.range(at: 1), in: line)!])
+                    if ["func", "var", "let"].contains(name) { continue }
+                    violations.append("\(at) declares class \(name)")
+                }
+                for m in staticVarRegex.matches(in: line, range: range) {
+                    violations.append("\(at) declares static var \(line[Range(m.range(at: 1), in: line)!])")
+                }
+                for m in globalVarRegex.matches(in: line, range: range) {
+                    violations.append("\(at) declares global var \(line[Range(m.range(at: 1), in: line)!])")
+                }
+            }
+        }
+        return violations
+    }
+
+    static func connectionCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification, coreType: String = "ConnectionCore") -> [String] {
+        let id = "R3_connectionCoreIsPure"
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // a: 연결 Core 가 core 층에 정확히 한 번 있고 step 이 있다
+        let coreFiles = a.files.filter { classification.kind(of: $0.package) == .core }
+        if coreFiles.isEmpty {
+            violations.append("\(id): no core package")
+        }
+        var declaringFiles: [[String]] = []
+        for entry in coreFiles {
+            for line in entry.lines {
+                if let d = parseDeclaration(line), d.name == coreType, d.kind == "enum" || d.kind == "struct" {
+                    declaringFiles.append(entry.lines)
+                }
+            }
+        }
+        if declaringFiles.isEmpty {
+            violations.append("\(id): \(coreType) not declared in core")
+        } else if declaringFiles.count > 1 {
+            violations.append("\(id): \(coreType) declared \(declaringFiles.count) times")
+        } else {
+            let step = try! NSRegularExpression(pattern: #"\bfunc\s+step\s*[(<]"#)
+            let hasStep = declaringFiles[0].contains { step.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+            if !hasStep { violations.append("\(id): \(coreType) has no step") }
+        }
+
+        // b~d2
+        violations += coreIsPure(id: id, sources: sources, classification: classification)
+
+        // e: domain 이 step 을 부른다
+        let call = try! NSRegularExpression(pattern: #"\b"# + NSRegularExpression.escapedPattern(for: coreType) + #"\s*\.\s*step\s*\("#)
+        let called = a.files.contains { entry in
+            classification.isDomainLike(entry.package)
+                && entry.lines.contains { call.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+        }
+        if !called {
+            violations.append("\(id): domain does not call \(coreType).step")
+        }
+
+        // f: domain 은 연결 상태를 스스로 정하지 않는다
+        let members = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_)\]?!>])\.(\#(connectionStateMembers.joined(separator: "|")))(?![A-Za-z0-9_])"#)
+        let disconnected = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_)\]?!>])\.disconnected\s*\(\s*reason\s*:"#)
+        let qualified = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])ConnectionState\s*\.\s*(discoveringServices|configuring|recovering|disconnecting|ready|connecting|disconnected)(?![A-Za-z0-9_])"#)
+        for entry in a.files where classification.isDomainLike(entry.package) {
+            for (number, line) in numbered(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                var tokens: [(Int, String)] = []
+                for m in members.matches(in: line, range: range) {
+                    tokens.append((m.range.location, "." + String(line[Range(m.range(at: 1), in: line)!])))
+                }
+                for m in disconnected.matches(in: line, range: range) {
+                    tokens.append((m.range.location, ".disconnected(reason:)"))
+                }
+                for m in qualified.matches(in: line, range: range) {
+                    tokens.append((m.range.location, "ConnectionState." + String(line[Range(m.range(at: 1), in: line)!])))
+                }
+                for (_, token) in tokens.sorted(by: { $0.0 < $1.0 }) {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) decides connection state (\(token))")
+                }
+            }
+        }
+
+        // g: 연결 상태 쓰기(`core` 대입, `state.send(`)는 dispatch·perform 안에서만 한다.
+        // `injectPhaseForTesting` 는 시험이 단계를 심는 이름 붙은 입구 하나다. 그 밖의 함수는 위반이다
+        let writes = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_.])(?<!var\s)(?<!let\s)core\s*(?:\.\s*\w+\s*)*(?:=|\+=|-=)(?![=])|(?<![A-Za-z0-9_])state\s*\.\s*send\s*\("#)
+        let funcName = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])func\s+([A-Za-z_]\w*)"#)
+        let writers: Set<String> = ["dispatch", "perform", "injectPhaseForTesting"]
+        for entry in a.files where classification.isDomainLike(entry.package) {
+            var depth = 0
+            var pending: String?
+            var open: [(name: String, depth: Int)] = []
+            for (number, line) in numbered(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                if let m = funcName.firstMatch(in: line, range: range) { pending = String(line[Range(m.range(at: 1), in: line)!]) }
+                // 본문 여는 중괄호 앞의 쓰기는 이 줄의 바깥 함수에 속한다. 같은 줄의 쓰기는 줄 끝 상태로 본다
+                for ch in line {
+                    if ch == "{" {
+                        depth += 1
+                        if let name = pending { open.append((name, depth)); pending = nil }
+                    } else if ch == "}" {
+                        if open.last?.depth == depth { open.removeLast() }
+                        depth -= 1
+                    }
+                }
+                let inWriter = open.contains { writers.contains($0.name) }
+                let lineWrites = writes.matches(in: line, range: range)
+                if !lineWrites.isEmpty, !inWriter {
+                    let hit = String(line[Range(lineWrites[0].range, in: line)!]).trimmingCharacters(in: .whitespaces)
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) writes connection state outside dispatch (\(hit))")
+                }
+            }
+        }
+
+        // h: Ports·Model 은 Core 를 모른다(Core → Model 은 허용, 반대 방향은 위반)
+        for e in a.edges where classification.kind(of: e.to) == .core {
+            let k = classification.kind(of: e.from)
+            if k == .ports || k == .model {
+                violations.append("\(id): \(e.location) \(e.from) -> \(e.to) (\(e.name))")
+            }
+        }
+        return violations
+    }
 }
 
 final class ArchitectureRulesTests: XCTestCase {
@@ -608,6 +784,10 @@ final class ArchitectureRulesTests: XCTestCase {
 
     func test_R2_domainUsesClockPort() throws {
         report(RuleScanner.domainUsesClockPort(try loadSources(), .project))
+    }
+
+    func test_R3_connectionCoreIsPure() throws {
+        report(RuleScanner.connectionCoreIsPure(try loadSources(), .project))
     }
 
     // MARK: 자기 점검 — 같은 규칙 함수를 합성 소스에 부른다(이름에 규칙 id 를 넣지 않는다)
@@ -676,6 +856,139 @@ final class ArchitectureRulesTests: XCTestCase {
 
         // d: 도메인이 포트를 참조한다
         XCTAssertEqual(check(dom: "struct X {}"), ["R2_domainUsesClockPort: domain does not reference BLEClock"])
+    }
+
+    func test_coreRuleScannerSelfCheck() {
+        let c = PackageClassification(model: ["M"], ports: ["P"], driver: ["D"], factory: ["F"], domain: ["Dom"], core: ["C"])
+        let id = "R3_connectionCoreIsPure"
+        let baseCore = "enum ConnectionCore {\n    static func step(_ s: ModelThing, _ e: Int) -> ModelThing { s }\n}"
+        let baseDom = "struct DomThing {}\nfunc run() { _ = ConnectionCore.step(ModelThing(), 1) }"
+
+        /// coreFiles 가 비면 C 패키지를 뺀다. extra 는 C/X.swift 로 더한다.
+        func check(coreFiles: [String: String] = ["C/ConnectionCore.swift": baseCore], extra: String? = nil, dom: String = baseDom,
+                   model: String = "struct ModelThing {}", ports: String = "struct PortThing {}", driver: String = "struct DriverThing {}",
+                   factory: String = "struct FactoryThing {}") -> [String] {
+            var sources: PackageSources = [
+                "M": ["M/X.swift": model],
+                "P": ["P/X.swift": ports],
+                "D": ["D/X.swift": driver],
+                "F": ["F/X.swift": factory],
+                "Dom": ["Dom/X.swift": dom],
+            ]
+            var files = coreFiles
+            if let extra { files["C/X.swift"] = extra }
+            if !files.isEmpty { sources["C"] = files }
+            return RuleScanner.connectionCoreIsPure(sources, c)
+        }
+        func core(_ body: String) -> [String] { check(extra: body) }
+
+        XCTAssertEqual(check(), [])
+
+        // a: core 층에 ConnectionCore 가 정확히 한 번, step 과 함께
+        XCTAssertEqual(check(coreFiles: [:]), ["\(id): no core package", "\(id): ConnectionCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "struct Other {}"]), ["\(id): ConnectionCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": baseCore, "C/B.swift": "struct ConnectionCore {\n    func step() {}\n}"]), ["\(id): ConnectionCore declared 2 times"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "enum ConnectionCore {}"]), ["\(id): ConnectionCore has no step"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "enum ConnectionCore {\n    static func step<T>(_ s: T) -> T { s }\n}"]), [])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "enum ConnectionCore {\n    static func stepper() {}\n}"]), ["\(id): ConnectionCore has no step"])
+        // 다른 층에 선언된 ConnectionCore 는 core 선언이 아니다
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "struct Other {}"], driver: "enum ConnectionCore {\n    static func step() {}\n}"), ["\(id): ConnectionCore not declared in core"])
+
+        // b: Model·Core 밖 내부 패키지 참조
+        XCTAssertEqual(core("func f(_ p: PortThing) {}"), ["\(id): C/X.swift:1 C -> P (PortThing)"])
+        XCTAssertEqual(core("func f(_ p: DomThing) {}"), ["\(id): C/X.swift:1 C -> Dom (DomThing)"])
+        XCTAssertEqual(core("func f(_ p: DriverThing) {}"), ["\(id): C/X.swift:1 C -> D (DriverThing)"])
+        XCTAssertEqual(core("func f(_ p: ModelThing) {}"), [])
+
+        // c: 플랫폼 타입
+        XCTAssertEqual(core("import CoreBluetooth"), ["\(id): C/X.swift:1 C imports CoreBluetooth"])
+        XCTAssertEqual(core("import Combine"), ["\(id): C/X.swift:1 C imports Combine"])
+        XCTAssertEqual(core("import Foundation"), [])
+        XCTAssertEqual(core("let m: CBPeripheral? = nil"), ["\(id): C/X.swift:1 C -> CoreBluetooth (CBPeripheral)"])
+
+        // d: async·동시성·입출력·시간
+        XCTAssertEqual(core("func f() async {}"), ["\(id): C/X.swift:1 C uses async"])
+        XCTAssertEqual(core("let t = Task { }"), ["\(id): C/X.swift:1 C uses Task"])
+        XCTAssertEqual(core("@BLECoreActor func f() {}"), ["\(id): C/X.swift:1 C uses BLECoreActor"])
+        XCTAssertEqual(core("print(1)"), ["\(id): C/X.swift:1 C uses print"])
+        XCTAssertEqual(core("func f(_ c: @escaping () -> Void) {}"), ["\(id): C/X.swift:1 C uses escaping"])
+        XCTAssertEqual(core("let d = Date()"), ["\(id): C/X.swift:1 C uses Date"])
+        XCTAssertEqual(core("DispatchQueue.main.async {}"), ["\(id): C/X.swift:1 C uses DispatchQueue", "\(id): C/X.swift:1 C uses async"])
+        for body in ["// await Task", "let s = \"async\"", "let asyncCount = 1", "case task"] {
+            XCTAssertEqual(core(body), [], body)
+        }
+        for body in ["func f() async {}", "let t = Task { }", "print(1)", "let d = Date()", "import CoreBluetooth"] {
+            XCTAssertEqual(check(driver: "struct DriverThing {}\n" + body), [], body)
+            XCTAssertEqual(check(factory: "struct FactoryThing {}\n" + body), [], body)
+        }
+
+        // d2: 가변 공유 상태
+        XCTAssertEqual(core("final class Box {}"), ["\(id): C/X.swift:1 C declares class Box"])
+        XCTAssertEqual(core("    static var counter = 0"), ["\(id): C/X.swift:1 C declares static var counter"])
+        XCTAssertEqual(core("var x = 0"), ["\(id): C/X.swift:1 C declares global var x"])
+        XCTAssertEqual(core("private(set) var x = 0"), ["\(id): C/X.swift:1 C declares global var x"])
+        XCTAssertEqual(core("fileprivate var x = 0"), ["\(id): C/X.swift:1 C declares global var x"])
+        XCTAssertEqual(core("nonisolated(unsafe) var x = 0"), ["\(id): C/X.swift:1 C uses nonisolated", "\(id): C/X.swift:1 C declares global var x"])
+        XCTAssertEqual(core("    static private(set) var counter = 0"), ["\(id): C/X.swift:1 C declares static var counter"])
+        XCTAssertEqual(core("    static fileprivate var counter = 0"), ["\(id): C/X.swift:1 C declares static var counter"])
+        XCTAssertEqual(core("    private static var counter = 0"), ["\(id): C/X.swift:1 C declares static var counter"])
+        for body in ["static let x = 0", "struct S {\n    var phase: Int\n}", "let klass = 1", "class func make() {}"] {
+            XCTAssertEqual(core(body), [], body)
+        }
+
+        // e: domain 이 ConnectionCore.step 을 부른다
+        let noCall = ["\(id): domain does not call ConnectionCore.step"]
+        XCTAssertEqual(check(dom: "struct DomThing {}"), noCall)
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = ConnectionCore . step (ModelThing(), 1) }"), [])
+        XCTAssertEqual(check(dom: "struct DomThing {}", driver: "struct DriverThing {}\nfunc go() { _ = ConnectionCore.step(ModelThing(), 1) }"), noCall)
+        XCTAssertEqual(check(dom: "struct DomThing {}", factory: "struct FactoryThing {}\nfunc go() { _ = ConnectionCore.step(ModelThing(), 1) }"), noCall)
+
+        // f: domain 은 연결 상태를 스스로 정하지 않는다
+        func domain(_ body: String) -> [String] { check(dom: baseDom + "\n" + body) }
+        let at = "\(id): Dom/X.swift:3 Dom decides connection state"
+        XCTAssertEqual(domain("publish(.configuring)"), ["\(at) (.configuring)"])
+        XCTAssertEqual(domain("case .discoveringServices: break"), ["\(at) (.discoveringServices)"])
+        XCTAssertEqual(domain("if case .recovering = s {}"), ["\(at) (.recovering)"])
+        XCTAssertEqual(domain("case .disconnecting: break"), ["\(at) (.disconnecting)"])
+        XCTAssertEqual(domain("send(.disconnected(reason: .requested))"), ["\(at) (.disconnected(reason:))"])
+        XCTAssertEqual(domain("send(.disconnected( reason : .requested))"), ["\(at) (.disconnected(reason:))"])
+        let negatives = [
+            "let b = x == PortPeripheralState.disconnecting", "let b = a.configuring", "let b = f()?.recovering", "case .disconnected: break",
+            "let b = s == .ready", "let b = s == .connecting", "// .configuring", "let lit = \".recovering\"",
+        ]
+        for body in negatives {
+            XCTAssertEqual(domain(body), [], body)
+        }
+        // 타입을 적은 형태도 같은 뜻이다
+        XCTAssertEqual(domain("publish(ConnectionState.configuring)"), ["\(at) (ConnectionState.configuring)"])
+        XCTAssertEqual(domain("send(ConnectionState . disconnected(reason: .requested))"), ["\(at) (ConnectionState.disconnected)"])
+        XCTAssertEqual(domain("if s == ConnectionState.ready {}"), ["\(at) (ConnectionState.ready)"])
+        XCTAssertEqual(domain("let b = MyConnectionState.configuring"), [])
+
+        // g: 연결 상태 쓰기는 dispatch·perform 안에서만
+        let wat = "\(id): Dom/X.swift:3 Dom writes connection state outside dispatch"
+        XCTAssertEqual(domain("func x() { core.phase = .ready }"), ["\(wat) (core.phase =)"])
+        XCTAssertEqual(domain("func x() { state.send(p) }"), ["\(wat) (state.send()"])
+        XCTAssertEqual(domain("func x() {\n    core = next\n}").count, 1)
+        XCTAssertEqual(domain("func dispatch() {\n    core = next\n    state.send(p)\n}"), [])
+        XCTAssertEqual(domain("func perform() {\n    switch e {\n    case .a:\n        state.send(p)\n    }\n}"), [])
+        XCTAssertEqual(domain("func injectPhaseForTesting() {\n    core.phase = p\n}"), [])
+        XCTAssertEqual(domain("func dispatch() {}\nfunc y() {\n    core.live = nil\n}").count, 1)
+        XCTAssertEqual(domain("func y() { let c = core; _ = core.phase; if core.live == 1 {} }"), [])
+        // 다른 층은 이 규칙 밖이다
+        XCTAssertEqual(check(driver: "struct DriverThing {}\nfunc x() { core.phase = p; state.send(p) }"), [])
+
+        // h: Ports·Model 은 Core 를 모른다. Core → Model 은 허용
+        let refCore = "func f(_ c: ConnectionCore) {}"
+        XCTAssertEqual(check(ports: "struct PortThing {}\n" + refCore), ["\(id): P/X.swift:2 P -> C (ConnectionCore)"])
+        XCTAssertEqual(check(model: "struct ModelThing {}\n" + refCore), ["\(id): M/X.swift:2 M -> C (ConnectionCore)"])
+
+        let positives = ["publish(.configuring)", "case .discoveringServices: break", "send(.disconnected(reason: .requested))"]
+        for body in positives {
+            XCTAssertEqual(core(body), [], body)
+            XCTAssertEqual(check(model: "struct ModelThing {}\n" + body), [], body)
+            XCTAssertEqual(check(driver: "struct DriverThing {}\n" + body), [], body)
+        }
     }
 
     func test_ruleScannerSelfCheck() {

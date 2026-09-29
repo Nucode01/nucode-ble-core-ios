@@ -242,7 +242,7 @@ final class ConnectTests: XCTestCase {
 
     func testConnectDuringDisconnectingFails() async throws {
         let (client, central) = await makeStarted()
-        self.session(client).state.send(.disconnecting)
+        self.session(client).injectPhaseForTesting(.disconnecting)
         let result = await connectOutcome(client, ConnectOptions())
         XCTAssertEqual(result, "CONNECT_DURING_DISCONNECT")
         let connects = await central.connectCalls

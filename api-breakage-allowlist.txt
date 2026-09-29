@@ -1,1 +1,4 @@
 API breakage: constructor BLEClient.init(options:environment:clock:centralFactory:) has removed default argument from parameter 2
+API breakage: var ConnectAttempt.options has been removed
+API breakage: var ConnectAttempt.linkDeadlineAt has been removed
+API breakage: constructor ConnectAttempt.init(generation:options:linkDeadlineAt:) has been removed

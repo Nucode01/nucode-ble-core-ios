@@ -1,11 +1,12 @@
 import Foundation
 
-/// 기기 하나의 세션 상태. `Disconnected(Initial)` 로 태어난다(docs/v1/ios-design.md §6).
-/// 연결 진입, 링크 시작(서비스 탐색), 해제, read·구독 명령까지다. write 는 뒤 task 가 채운다.
+/// 기기 하나의 세션 Runtime. `Disconnected(Initial)` 로 태어난다(docs/v1/ios-design.md §6).
+/// 연결 상태의 주인은 `core`(`ConnectionCore.State`)다. 모든 사건을 `ConnectionCore.step` 에 넘기고,
+/// 새 상태를 먼저 저장한 뒤 할 일을 목록 순서대로 실행한다.
 @BLECoreActor
 package final class Session {
     package let peripheralID: PeripheralID
-    package let state = StateBroadcaster<ConnectionState>(.disconnected(reason: .initial))
+    package let state = StateBroadcaster<ConnectionState>(ConnectionCore.State().phase)
     private(set) package var services: [GATTService] = []
     private(set) package var subscriptions: Set<CharacteristicRef> = []
     /// 서비스 목록 흐름. 끊겨도 비우지 않는다
@@ -20,12 +21,14 @@ package final class Session {
     /// 링크: 확보한 기기 객체(강한 참조)와 세대. 오래된 콜백을 걸러 내는 기준이다
     /// 링크가 아직 없어도 복원 번역기가 받아둔 기기를 넣는다(`RestoreTranslator`). 연결 경로가 이 객체를 그대로 쓴다
     package var peripheral: (any PeripheralPort)?
-    private(set) package var generation: UInt64 = 0
-    /// 마지막으로 OS 가 받아들인 연결 의도
-    private(set) package var intent: ConnectOptions?
 
-    /// OS 가 연결 요청을 받은 시도의 세대. 링크가 끝나면 nil. central 콜백은 이것과 `peripheral` 이 맞아야 처리한다
-    private var liveGeneration: UInt64?
+    /// 연결 상태의 유일한 주인. 바꾸는 곳은 `dispatch` 하나다
+    private var core = ConnectionCore.State()
+    package var generation: UInt64 { core.generation }
+    /// 마지막으로 OS 가 받아들인 연결 의도
+    package var intent: ConnectOptions? { core.intent }
+    package var isClosed: Bool { core.closed }
+
     private var attempt: ConnectAttempt?
     private var linkDeadline: Task<Void, Never>?
     private var setup: LinkSetup?
@@ -33,16 +36,9 @@ package final class Session {
     private var configurationDeadline: Task<Void, Never>?
     private var cleanupDeadline: Task<Void, Never>?
     private var disconnectWaiter: Waiter<Void>?
-    /// 이 연결이 Ready 에 닿은 적이 있다. Recovering 은 그 뒤의 링크 유실에만 쓴다
-    private var hasBeenReady = false
-    /// autoReconnect 세션이 어댑터 이탈로 끝났다. 어댑터가 Ready 로 돌아오면 한 번 다시 연결한다
-    private var resumeOnAdapterReady = false
     private let context: SessionContext
 
     // GATT 명령. 참조는 공개(instanceIndex) 쪽과 플랫폼(포트) 쪽을 오간다
-    private(set) package var isClosed = false
-    /// 열린 채 닫힌 세션의 마지막 상태. 스냅숏에만 쓰인다
-    private var closedState: ConnectionState?
     private let operations: OperationQueue
     private var portRefs: [CharacteristicRef: CharacteristicRef] = [:]
     private var publicRefs: [CharacteristicRef: CharacteristicRef] = [:]
@@ -64,6 +60,11 @@ package final class Session {
         subscriptions.insert(characteristic)
     }
 
+    /// 시험용: 연결 단계를 Core 상태에 직접 심는다(게시하지 않는다)
+    package func injectPhaseForTesting(_ phase: ConnectionState) {
+        core.phase = phase
+    }
+
     /// 앱 시작 등록의 구독 의도를 Disconnected 세션에 심는다. 연결 뒤 Configuring 이 복원한다
     package func seedSubscriptions(_ characteristics: [CharacteristicRef]) {
         subscriptions.formUnion(characteristics)
@@ -77,105 +78,156 @@ package final class Session {
         } catch is CancellationError {
             return
         } catch let error as BLEError {
-            failRegisteredStart(error.failure)
+            dispatch(.registeredStartFailed(failure: error.failure))
         } catch {
-            failRegisteredStart(BLEFailure(code: .linkFailed, message: "\(error)"))
+            dispatch(.registeredStartFailed(failure: BLEFailure(code: .linkFailed, message: "\(error)")))
         }
     }
 
-    private func failRegisteredStart(_ failure: BLEFailure) {
-        guard !isClosed, case .disconnected = state.value else { return }
-        publish(.disconnected(reason: .failed(failure)))
-        context.events.emit(.diagnostic(code: failure.code, message: "등록 기기 시작 연결이 실패했다: \(failure.message)"))
-    }
-
     package func snapshot() -> SessionSnapshot {
-        SessionSnapshot(peripheralID: peripheralID, state: closedState ?? state.value, services: services, subscriptions: subscriptions)
+        SessionSnapshot(peripheralID: peripheralID, state: ConnectionCore.snapshotPhase(core), services: services, subscriptions: subscriptions)
     }
 
     /// 닫힘: 시작 전 시도는 `CLIENT_CLOSED` 로 끝내고 기한을 거둔다. 열린 세션은 `Disconnected(ClientClosed)` 로 만든 뒤 흐름을 닫는다.
     /// 구독 의도는 남긴다(닫을 때 스냅숏에 그대로 실린다). 멱등이다
     package func close() {
-        guard !isClosed else { return }
-        isClosed = true
-        if let attempt { abort(attempt, AdapterMonitor.closedError()) }
-        cancelTimers()
-        setup?.cancel()
-        setup = nil
-        liveGeneration = nil
-        resumeOnAdapterReady = false
-        pendingSubscribes.removeAll()
-        operations.invalidate(GattFailure.closed())
-        setActive([])
-        if let peripheral, let central = context.central, peripheral.connectionState != .disconnected {
-            central.cancelPeripheralConnection(peripheral)
+        dispatch(.close, Inputs(abortError: AdapterMonitor.closedError()))
+    }
+
+    // MARK: 사건 → 상태 → 할 일
+
+    /// 할 일을 실행할 때만 필요한 값. 상태 판단에는 쓰이지 않는다
+    private struct Inputs {
+        var abortError: (any Error)?
+        var discovered: (refs: [CharacteristicRef: CharacteristicRef], services: [GATTService])?
+    }
+
+    /// 새 상태를 먼저 저장하고 할 일을 순서대로 실행한다. 실행 중 들어온 사건은 저장된 새 상태 위에서 step 한다
+    @discardableResult
+    private func dispatch(_ event: ConnectionCore.Event, _ inputs: Inputs = Inputs()) -> [ConnectionCore.Effect] {
+        let (next, effects) = ConnectionCore.step(core, event)
+        core = next
+        for effect in effects { perform(effect, inputs) }
+        return effects
+    }
+
+    private func perform(_ effect: ConnectionCore.Effect, _ inputs: Inputs) {
+        switch effect {
+        case .publish(let new):
+            state.send(new)
+            context.events.emit(.connection(peripheralID: peripheralID, state: new))
+        case .beginAttempt(let generation, _, _):
+            let created = ConnectAttempt(generation: generation)
+            attempt = created
+            begin(created)
+        case .joinAttempt, .rejectConnect, .awaitDisconnect:
+            break
+        case .abortAttempt(let generation):
+            guard let attempt, attempt.generation == generation else { break }
+            self.attempt = nil
+            attempt.gate?.cancel()
+            attempt.gate = nil
+            attempt.resolver?.cancel()
+            attempt.resolver = nil
+            attempt.startWaiter.resolve(.failure(inputs.abortError ?? CancellationError()))
+        case .resolveAttempt(let generation):
+            guard let attempt, attempt.generation == generation else { break }
+            self.attempt = nil
+            attempt.resolver = nil
+            attempt.startWaiter.resolve(.success(()))
+        case .connectPeripheral:
+            if let peripheral, let central = context.central { central.connect(peripheral) }
+        case .cancelPeripheralConnection:
+            if let peripheral { context.central?.cancelPeripheralConnection(peripheral) }
+        case .armTimer(let kind, let generation, let milliseconds):
+            armTimer(kind, generation, milliseconds)
+        case .cancelTimer(let kind):
+            cancelTimer(kind)
+        case .cancelTimers:
+            cancelTimer(.link)
+            cancelTimer(.configuration)
+            cancelTimer(.cleanup)
+        case .startDiscovery(let generation):
+            guard let peripheral else { break }
+            let created = LinkSetup(
+                peripheral: peripheral,
+                clock: context.clock,
+                diagnostic: { [weak self] code, message in self?.context.events.emit(.diagnostic(code: code, message: message)) },
+                onFinish: { [weak self] outcome in self?.setupFinished(generation, outcome) }
+            )
+            setup = created
+            created.start()
+        case .cancelDiscovery:
+            setup?.cancel()
+            setup = nil
+        case .commitServices:
+            setup = nil
+            guard let discovered = inputs.discovered else { break }
+            portRefs = discovered.refs
+            publicRefs = [:]
+            for (publicRef, portRef) in discovered.refs.sorted(by: { $0.key.instanceIndex < $1.key.instanceIndex }) where publicRefs[portRef] == nil {
+                publicRefs[portRef] = publicRef
+            }
+            services = discovered.services
+            servicesFlow.send(discovered.services)
+            context.events.emit(.services(peripheralID: peripheralID, services: discovered.services))
+        case .startConfiguration(let generation):
+            // 늘 거친다. 구독 의도를 복원한다(`configurationStep` 이 있으면 그것으로 바꾼다)
+            let done: @BLECoreActor () -> Void = { [weak self] in self?.dispatch(.configurationFinished(generation: generation)) }
+            if let configurationStep { configurationStep(done) } else { restoreSubscriptions(generation, done: done) }
+        case .dropLinkBoundState(let message):
+            dropLinkBoundState(message)
+        case .clearSubscriptionIntent:
+            subscriptions.removeAll()
+        case .openDisconnectWaiter:
+            disconnectWaiter = Waiter<Void>()
+        case .resolveDisconnectWaiter:
+            disconnectWaiter?.resolve(.success(()))
+            disconnectWaiter = nil
+        case .diagnostic(let code, let message):
+            context.events.emit(.diagnostic(code: code, message: message))
+        case .closeGattState:
+            pendingSubscribes.removeAll()
+            operations.invalidate(GattFailure.closed())
+            setActive([])
+        case .releasePeripheralOnClose:
+            if let peripheral, let central = context.central, peripheral.connectionState != .disconnected {
+                central.cancelPeripheralConnection(peripheral)
+            }
+        case .closeFlows:
+            for hub in notificationHubs.values { hub.close() }
+            state.close()
+            servicesFlow.close()
+            activeSubscriptionsFlow.close()
         }
-        if case .disconnected = state.value {} else {
-            // 닫은 뒤의 전이는 흐름·이벤트로 보장하지 않는다(CANDIDATE-18). 스냅숏만 이 값을 본다
-            closedState = .disconnected(reason: .clientClosed)
-        }
-        for hub in notificationHubs.values { hub.close() }
-        disconnectWaiter?.resolve(.success(()))
-        disconnectWaiter = nil
-        state.close()
-        servicesFlow.close()
-        activeSubscriptionsFlow.close()
     }
 
     // MARK: connect 진입
 
-    private enum Admission {
-        case alreadyStarted
-        case join(ConnectAttempt)
-        case new(ConnectAttempt)
-    }
-
     /// 어댑터 판정과 기기 확보는 시간이 걸리지만 진입 함수 중간에 `await` 를 두지 않는다.
     /// 각 단계가 동기로 다음 단계를 잇고, 마지막 줄에서 `startWaiter` 만 기다린다.
     package func connect(options: ConnectOptions) async throws {
-        let attempt: ConnectAttempt
-        switch try admit(options) {
-        case .alreadyStarted:
-            return
-        case .join(let running):
-            try await running.startWaiter.value()
-            return
-        case .new(let created):
-            attempt = created
-            begin(created)
+        var joined = false
+        var created = false
+        for effect in dispatch(.connect(options: options, now: context.clock.nowMilliseconds())) {
+            switch effect {
+            case .rejectConnect(let failure): throw BLEError(failure: failure)
+            case .joinAttempt: joined = true
+            case .beginAttempt: created = true
+            default: break
+            }
         }
+        guard let attempt else { return }
+        if joined {
+            try await attempt.startWaiter.value()
+            return
+        }
+        guard created else { return }
         try await withTaskCancellationHandler {
             try await attempt.startWaiter.value()
         } onCancel: {
             Task { @BLECoreActor in self.abort(attempt, CancellationError()) }
         }
-    }
-
-    /// 중복 판정(Android `admitConnect` 와 같다). 상태는 바꾸지 않는다.
-    private func admit(_ options: ConnectOptions) throws -> Admission {
-        if let attempt {
-            guard attempt.options == options else { throw Self.optionsConflict }
-            return .join(attempt)
-        }
-        switch state.value {
-        case .disconnecting:
-            throw BLEError(failure: BLEFailure(code: .connectDuringDisconnect, message: "해제 정리 중이라 연결할 수 없다"))
-        case .connecting, .discoveringServices, .configuring, .ready, .recovering:
-            guard intent == options else { throw Self.optionsConflict }
-            return .alreadyStarted
-        case .disconnected:
-            break
-        }
-        generation += 1
-        resumeOnAdapterReady = false
-        let deadline = options.autoReconnect ? nil : context.clock.nowMilliseconds() + Deadlines.link
-        let created = ConnectAttempt(generation: generation, options: options, linkDeadlineAt: deadline)
-        attempt = created
-        return .new(created)
-    }
-
-    private static var optionsConflict: BLEError {
-        BLEError(failure: BLEFailure(code: .connectionOptionsConflict, message: "다른 옵션으로 이미 연결 중이다"))
     }
 
     private func begin(_ attempt: ConnectAttempt) {
@@ -201,14 +253,14 @@ package final class Session {
         let resolver = PeripheralResolver(id: peripheralID, central: central, scanner: context.scanner, clock: context.clock)
         attempt.resolver = resolver
         if let peripheral {
-            accept(attempt, peripheral: peripheral, central: central)
+            accept(attempt, peripheral: peripheral)
             return
         }
         let known = services.map(\.ref.uuid)
         resolver.start(knownServices: known) { [weak self] result in
             guard let self, self.attempt === attempt else { return }
             switch result {
-            case .success(let found): self.accept(attempt, peripheral: found, central: central)
+            case .success(let found): self.accept(attempt, peripheral: found)
             case .failure(let error): self.abort(attempt, error)
             }
         }
@@ -217,153 +269,79 @@ package final class Session {
     /// 시작 전 시도를 정리한다. 연결 상태는 바꾸지 않는다. 이미 끝났으면 무동작
     private func abort(_ attempt: ConnectAttempt, _ error: any Error) {
         guard self.attempt === attempt else { return }
-        self.attempt = nil
-        attempt.gate?.cancel()
-        attempt.gate = nil
-        attempt.resolver?.cancel()
-        attempt.resolver = nil
-        attempt.startWaiter.resolve(.failure(error))
+        dispatch(.attemptFailed(generation: attempt.generation), Inputs(abortError: error))
     }
 
-    /// OS 에 연결을 요청한다. 이 함수가 끝나면 `connect()` 가 반환한다.
-    private func accept(_ attempt: ConnectAttempt, peripheral: any PeripheralPort, central: any CentralPort) {
-        self.attempt = nil
-        attempt.resolver = nil
+    /// 기기를 확보했다. 붙인 뒤 OS 에 연결을 요청하는 것은 Core 가 낸 할 일이다
+    private func accept(_ attempt: ConnectAttempt, peripheral: any PeripheralPort) {
         self.peripheral = peripheral
         let relay = SessionPeripheralDelegate(session: self, generation: attempt.generation)
         delegateRelay = relay
         peripheral.delegate = relay
-        intent = attempt.options
-        liveGeneration = attempt.generation
-        hasBeenReady = false
-        publish(.connecting)
-        central.connect(peripheral)
-        scheduleLinkDeadline(attempt)
-        attempt.startWaiter.resolve(.success(()))
+        dispatch(.attemptAccepted(generation: attempt.generation, now: context.clock.nowMilliseconds()))
     }
 
-    // MARK: link deadline
+    // MARK: 기한
 
-    private func scheduleLinkDeadline(_ attempt: ConnectAttempt) {
-        linkDeadline?.cancel()
-        linkDeadline = nil
-        guard let deadlineAt = attempt.linkDeadlineAt else { return }
-        let generation = attempt.generation
-        let remaining = max(0, deadlineAt - context.clock.nowMilliseconds())
-        linkDeadline = Task { @BLECoreActor [weak self, clock = context.clock] in
-            do { try await clock.sleep(milliseconds: remaining) } catch { return }
-            self?.linkDeadlineReached(generation)
+    private func armTimer(_ kind: ConnectionCore.TimerKind, _ generation: UInt64, _ milliseconds: Int) {
+        cancelTimer(kind)
+        let task = Task { @BLECoreActor [weak self, clock = context.clock] in
+            do { try await clock.sleep(milliseconds: milliseconds) } catch { return }
+            self?.dispatch(.timerFired(kind: kind, generation: generation))
+        }
+        switch kind {
+        case .link: linkDeadline = task
+        case .configuration: configurationDeadline = task
+        case .cleanup: cleanupDeadline = task
         }
     }
 
-    private func linkDeadlineReached(_ generation: UInt64) {
-        guard liveGeneration == generation, case .connecting = state.value else { return }
-        linkDeadline = nil
-        endLink(.failed(BLEFailure(code: .linkTimeout, message: "\(Deadlines.link)ms 안에 링크가 붙지 않았다")))
-        if let peripheral { context.central?.cancelPeripheralConnection(peripheral) }
+    private func cancelTimer(_ kind: ConnectionCore.TimerKind) {
+        switch kind {
+        case .link:
+            linkDeadline?.cancel()
+            linkDeadline = nil
+        case .configuration:
+            configurationDeadline?.cancel()
+            configurationDeadline = nil
+        case .cleanup:
+            cleanupDeadline?.cancel()
+            cleanupDeadline = nil
+        }
     }
 
     // MARK: central 콜백 (`p === peripheral` 과 세대가 맞을 때만)
 
     private func isLive(_ candidate: any PeripheralPort) -> Bool {
-        guard let peripheral, peripheral === candidate, liveGeneration != nil else { return false }
+        guard let peripheral, peripheral === candidate, core.live != nil else { return false }
         return true
     }
 
     package func centralDidConnect(_ candidate: any PeripheralPort) {
-        guard isLive(candidate) else { return }
-        switch state.value {
-        case .connecting, .recovering: break
-        default: return
-        }
-        // 링크가 붙었다. Recovering 에서 붙으면 Connecting 을 거치지 않는다. link deadline 은 여기서 끝나고 서비스 탐색이 시작된다
-        linkDeadline?.cancel()
-        linkDeadline = nil
-        guard let generation = liveGeneration else { return }
-        publish(.discoveringServices)
-        let created = LinkSetup(
-            peripheral: candidate,
-            clock: context.clock,
-            diagnostic: { [weak self] code, message in self?.context.events.emit(.diagnostic(code: code, message: message)) },
-            onFinish: { [weak self] outcome in self?.setupFinished(generation, outcome) }
-        )
-        setup = created
-        created.start()
+        dispatch(.linkConnected(sameDevice: isLive(candidate)))
     }
 
     /// 링크가 끝났다. 진행 중이던 것을 모두 거두고 상태를 게시한다. 서비스 목록은 비우지 않는다
     package func centralDidDisconnect(_ candidate: any PeripheralPort, error: PortError?) {
-        guard isLive(candidate) else { return }
-        let failure = Self.linkFailure(error, fallback: "링크가 끊겼다")
-        switch state.value {
-        case .disconnecting:
-            endLink(.requested)
-        case .connecting:
-            endLink(.failed(failure))
-        case .discoveringServices, .configuring, .ready:
-            if hasBeenReady, intent?.autoReconnect == true {
-                recoverLink(failure, peripheral: candidate)
-            } else {
-                endLink(.failed(failure))
-            }
-        case .recovering, .disconnected:
-            break
-        }
+        let failure = PlatformErrorMapping.linkFailure(error, fallback: "링크가 끊겼다")
+        dispatch(.linkDisconnected(sameDevice: isLive(candidate), failure: failure))
     }
 
-    /// Ready 뒤 링크를 잃었고 autoReconnect 다. 들고 있는 기기에 기한 없는 대기 connect 를 걸고 Recovering 을 유지한다
-    private func recoverLink(_ failure: BLEFailure, peripheral: any PeripheralPort) {
-        cancelTimers()
-        setup?.cancel()
-        setup = nil
-        publish(.recovering(lastFailure: failure))
-        dropLinkBoundState("링크가 끊겨 작업이 무효가 됐다")
-        context.central?.connect(peripheral)
-    }
-
-    private static func linkFailure(_ error: PortError?, fallback: String) -> BLEFailure {
-        PlatformErrorMapping.linkFailure(error, fallback: fallback)
+    package func centralDidFailToConnect(_ candidate: any PeripheralPort, error: PortError?) {
+        let failure = PlatformErrorMapping.linkFailure(error, fallback: "연결에 실패했다")
+        dispatch(.linkFailedToConnect(sameDevice: isLive(candidate), failure: failure))
     }
 
     // MARK: 어댑터 이탈과 복귀
 
     private func adapterChanged(_ adapter: AdapterState) {
-        if adapter == .ready {
-            resumeAfterAdapter()
-            return
-        }
-        switch state.value {
-        case .connecting, .discoveringServices, .configuring, .ready, .recovering:
-            break
-        case .disconnecting, .disconnected:
-            return
-        }
-        let failure: BLEFailure
-        if case .unauthorized(let canRequest) = adapter {
-            failure = BLEFailure(
-                code: .permissionDenied,
-                message: "Bluetooth 권한을 잃었다",
-                retryability: canRequest ? .afterEnvironmentChange : .never
-            )
-        } else {
-            failure = BLEFailure(code: .adapterUnavailable, message: "어댑터가 Ready 를 벗어났다")
-        }
-        resumeOnAdapterReady = intent?.autoReconnect == true
-        abandonLink(.failed(failure))
-    }
-
-    /// 어댑터가 돌아왔다. 어댑터 이탈로 끝난 autoReconnect 세션은 한 번 `Connecting` 부터 다시 연결한다
-    private func resumeAfterAdapter() {
-        guard resumeOnAdapterReady, attempt == nil, case .disconnected = state.value, let options = intent else { return }
-        resumeOnAdapterReady = false
-        guard case .new(let created)? = try? admit(options) else { return }
-        begin(created)
+        dispatch(.adapterChanged(adapter, now: context.clock.nowMilliseconds()))
     }
 
     // MARK: peripheral 콜백 (`p === peripheral` 과 세대가 맞을 때만)
 
     package func peripheralDidDiscoverServices(_ candidate: any PeripheralPort, generation: UInt64, services: [ServiceRef], error: PortError?) {
-        guard isLive(candidate), liveGeneration == generation, case .discoveringServices = state.value else { return }
+        guard ConnectionCore.acceptsDiscoveryCallback(core, sameDevice: isLive(candidate), generation: generation) else { return }
         setup?.didDiscoverServices(services, error: error)
     }
 
@@ -374,155 +352,40 @@ package final class Session {
         for service: ServiceRef,
         error: PortError?
     ) {
-        guard isLive(candidate), liveGeneration == generation, case .discoveringServices = state.value else { return }
+        guard ConnectionCore.acceptsDiscoveryCallback(core, sameDevice: isLive(candidate), generation: generation) else { return }
         setup?.didDiscoverCharacteristics(characteristics, for: service, error: error)
     }
 
     // MARK: LinkSetup → Configuring → Ready
 
     private func setupFinished(_ generation: UInt64, _ outcome: LinkSetup.Outcome) {
-        guard liveGeneration == generation, case .discoveringServices = state.value else { return }
-        let mapping = setup?.portRefs ?? [:]
-        setup = nil
         switch outcome {
         case .failure(let failure):
-            abandonLink(.failed(failure))
+            dispatch(.discoveryFinished(generation: generation, failure: failure))
         case .success(let found):
-            portRefs = mapping
-            publicRefs = [:]
-            for (publicRef, portRef) in mapping.sorted(by: { $0.key.instanceIndex < $1.key.instanceIndex }) where publicRefs[portRef] == nil {
-                publicRefs[portRef] = publicRef
-            }
-            services = found
-            servicesFlow.send(found)
-            context.events.emit(.services(peripheralID: peripheralID, services: found))
-            configure(generation)
+            dispatch(
+                .discoveryFinished(generation: generation, failure: nil),
+                Inputs(discovered: (refs: setup?.portRefs ?? [:], services: found))
+            )
         }
-    }
-
-    /// 늘 거친다. 구독 의도를 복원한다(`configurationStep` 이 있으면 그것으로 바꾼다)
-    private func configure(_ generation: UInt64) {
-        publish(.configuring)
-        configurationDeadline = Task { @BLECoreActor [weak self, clock = context.clock] in
-            do { try await clock.sleep(milliseconds: Deadlines.configuration) } catch { return }
-            self?.configurationDeadlineReached(generation)
-        }
-        let done: @BLECoreActor () -> Void = { [weak self] in self?.configurationFinished(generation) }
-        if let configurationStep { configurationStep(done) } else { restoreSubscriptions(generation, done: done) }
-    }
-
-    private func configurationFinished(_ generation: UInt64) {
-        guard liveGeneration == generation, case .configuring = state.value else { return }
-        configurationDeadline?.cancel()
-        configurationDeadline = nil
-        hasBeenReady = true
-        publish(.ready)
-    }
-
-    private func configurationDeadlineReached(_ generation: UInt64) {
-        guard liveGeneration == generation, case .configuring = state.value else { return }
-        abandonLink(.failed(BLEFailure(code: .configurationTimeout, message: "\(Deadlines.configuration)ms 안에 설정이 끝나지 않았다")))
-    }
-
-    /// 링크를 우리가 끊는다: 실패로 게시하고 OS 에 연결 취소를 요청한다
-    private func abandonLink(_ reason: DisconnectReason) {
-        endLink(reason)
-        if let peripheral { context.central?.cancelPeripheralConnection(peripheral) }
     }
 
     // MARK: disconnect
 
     /// 멱등. 이미 끊겼으면 무동작, 해제 중이면 같은 정리를 기다린다. 대기는 마지막 줄의 한 번뿐이다.
     package func disconnect() async {
-        let waiter: Waiter<Void>
-        switch state.value {
-        case .disconnected:
-            resumeOnAdapterReady = false
-            subscriptions.removeAll()
-            if let attempt { abort(attempt, CancellationError()) }
-            return
-        case .disconnecting:
-            guard let running = disconnectWaiter else { return }
-            waiter = running
-        case .connecting, .discoveringServices, .configuring, .ready, .recovering:
-            waiter = beginDisconnect()
-        }
-        try? await waiter.value()
+        let linked = peripheral?.connectionState == .connected
+        let effects = dispatch(
+            .disconnect(hasLinkTarget: peripheral != nil && context.central != nil, linked: linked),
+            Inputs(abortError: CancellationError())
+        )
+        guard effects.contains(where: { if case .awaitDisconnect = $0 { true } else { false } }) else { return }
+        try? await disconnectWaiter?.value()
     }
 
-    private func beginDisconnect() -> Waiter<Void> {
-        let waiter = Waiter<Void>()
-        disconnectWaiter = waiter
-        intent = nil
-        subscriptions.removeAll()
-        cancelTimers()
-        setup?.cancel()
-        setup = nil
-        publish(.disconnecting)
-        dropLinkBoundState("사용자가 연결을 끊었다")
-        guard let peripheral, let central = context.central, let generation = liveGeneration else {
-            endLink(.requested)
-            return waiter
-        }
-        // 붙지 않은 대기 connect 를 취소하면 OS 는 콜백을 주지 않는다
-        let linked = peripheral.connectionState == .connected
-        central.cancelPeripheralConnection(peripheral)
-        guard linked else {
-            endLink(.requested)
-            return waiter
-        }
-        cleanupDeadline = Task { @BLECoreActor [weak self, clock = context.clock] in
-            do { try await clock.sleep(milliseconds: Deadlines.disconnectCleanup) } catch { return }
-            self?.cleanupDeadlineReached(generation)
-        }
-        return waiter
-    }
-
-    private func cleanupDeadlineReached(_ generation: UInt64) {
-        guard liveGeneration == generation, case .disconnecting = state.value else { return }
-        cleanupDeadline = nil
-        context.events.emit(.diagnostic(
-            code: .disconnectCleanupTimeout,
-            message: "\(Deadlines.disconnectCleanup)ms 안에 해제 콜백이 오지 않아 강제로 끝낸다"
-        ))
-        endLink(.requested)
-    }
-
-    private func cancelTimers() {
-        linkDeadline?.cancel()
-        linkDeadline = nil
-        configurationDeadline?.cancel()
-        configurationDeadline = nil
-        cleanupDeadline?.cancel()
-        cleanupDeadline = nil
-    }
-
-    package func centralDidFailToConnect(_ candidate: any PeripheralPort, error: PortError?) {
-        guard isLive(candidate) else { return }
-        switch state.value {
-        case .connecting, .recovering: break
-        default: return
-        }
-        endLink(.failed(Self.linkFailure(error, fallback: "연결에 실패했다")))
-    }
-
-    // MARK: 전이
-
-    private func endLink(_ reason: DisconnectReason) {
-        cancelTimers()
-        setup?.cancel()
-        setup = nil
-        liveGeneration = nil
-        dropLinkBoundState(Self.invalidationMessage(reason))
-        publish(.disconnected(reason: reason))
-        disconnectWaiter?.resolve(.success(()))
-        disconnectWaiter = nil
-    }
-
-    /// 전이마다 세션 상태 흐름과 `BLEEvent.connection` 이 함께 나간다
-    private func publish(_ new: ConnectionState) {
-        state.send(new)
-        context.events.emit(.connection(peripheralID: peripheralID, state: new))
+    /// 큐 기한이 지났다. 그 세대는 다시 쓰지 않고 링크를 끊는다
+    private func operationsPoisoned(_ failure: BLEFailure) {
+        dispatch(.operationsPoisoned(failure: failure))
     }
 }
 
@@ -531,14 +394,15 @@ package final class Session {
 extension Session {
     /// 진입 검사(states.md §5, §9): 닫힘 → Ready 아님(`NOT_READY`, 연결 시도 중) → 연결 없음(`NOT_CONNECTED`) → 참조 없음. 통과하면 포트 참조
     private func admitGatt(_ characteristic: CharacteristicRef) throws -> CharacteristicRef {
-        guard !isClosed else { throw AdapterMonitor.closedError() }
-        switch state.value {
-        case .ready:
-            break
-        case .connecting, .discoveringServices, .configuring:
-            throw BLEError(failure: BLEFailure(code: .notReady, message: "Ready 가 아니라 명령을 받을 수 없다"))
-        case .disconnected, .disconnecting, .recovering:
-            throw BLEError(failure: BLEFailure(code: .notConnected, message: "연결이 없다"))
+        if let rejected = ConnectionCore.gattAdmission(core) {
+            switch rejected {
+            case .clientClosed:
+                throw AdapterMonitor.closedError()
+            case .notReady:
+                throw BLEError(failure: BLEFailure(code: .notReady, message: "Ready 가 아니라 명령을 받을 수 없다"))
+            default:
+                throw BLEError(failure: BLEFailure(code: .notConnected, message: "연결이 없다"))
+            }
         }
         guard let portRef = portRefs[characteristic] else {
             throw BLEError(failure: BLEFailure(code: .characteristicNotFound, message: "이 기기에 없는 characteristic 이다"))
@@ -623,7 +487,7 @@ extension Session {
         guard !isClosed else { throw AdapterMonitor.closedError() }
         subscriptions.remove(characteristic)
         let wasPending = pendingSubscribes.remove(characteristic) != nil
-        guard case .ready = state.value, activeSet.contains(characteristic) || wasPending else { return }
+        guard ConnectionCore.isReady(core), activeSet.contains(characteristic) || wasPending else { return }
         guard let portRef = portRefs[characteristic] else {
             context.events.emit(.diagnostic(code: .characteristicNotFound, message: "구독 해제 대상이 이 기기에 없다"))
             return
@@ -665,11 +529,7 @@ extension Session {
     // MARK: 콜백 (`p === peripheral` 과 세대가 맞을 때만)
 
     private func acceptsGattCallback(_ candidate: any PeripheralPort, generation: UInt64) -> Bool {
-        guard isLive(candidate), liveGeneration == generation else { return false }
-        switch state.value {
-        case .configuring, .ready: return true
-        default: return false
-        }
+        ConnectionCore.acceptsGattCallback(core, sameDevice: isLive(candidate), generation: generation)
     }
 
     /// read 응답과 알림이 같은 콜백으로 온다. 구독 중이면 모두 알림 스트림으로 가고, 진행 중인 read 가 있으면 첫 값이 그 결과다
@@ -680,7 +540,7 @@ extension Session {
         for characteristic: CharacteristicRef,
         error: PortError?
     ) {
-        if error == nil, let value, isLive(candidate), liveGeneration == generation {
+        if error == nil, let value, isLive(candidate), core.live == generation {
             notificationTap?(publicRefs[characteristic] ?? characteristic, value)
         }
         guard acceptsGattCallback(candidate, generation: generation), let ref = publicRefs[characteristic] else { return }
@@ -741,22 +601,6 @@ extension Session {
         operations.invalidate(GattFailure.invalidated(message))
     }
 
-    fileprivate static func invalidationMessage(_ reason: DisconnectReason) -> String {
-        switch reason {
-        case .initial, .requested: "사용자가 연결을 끊었다"
-        case .clientClosed: "클라이언트가 닫혔다"
-        case .failed(let failure): "연결이 끝나 작업이 무효가 됐다: \(failure.message)"
-        }
-    }
-
-    /// 큐 기한이 지났다. 그 세대는 다시 쓰지 않고 링크를 끊는다
-    private func operationsPoisoned(_ failure: BLEFailure) {
-        switch state.value {
-        case .configuring, .ready: abandonLink(.failed(failure))
-        default: break
-        }
-    }
-
     /// Configuring 에서 구독 의도를 하나씩 복원한다. 실패는 `subscriptionRestoreFailed` 이벤트로 알리고 활성 집합에 넣지 않는다.
     /// 새 탐색 결과에 없는 의도는 지운다. 그 밖의 실패는 의도를 남겨 다음 연결에서 다시 시도한다
     private func restoreSubscriptions(_ generation: UInt64, done: @escaping @BLECoreActor () -> Void) {
@@ -767,7 +611,7 @@ extension Session {
     }
 
     private func restoreNext(_ remaining: ArraySlice<CharacteristicRef>, _ generation: UInt64, done: @escaping @BLECoreActor () -> Void) {
-        guard liveGeneration == generation, case .configuring = state.value else { return }
+        guard ConnectionCore.isConfiguring(core, generation: generation) else { return }
         guard let ref = remaining.first else {
             done()
             return
