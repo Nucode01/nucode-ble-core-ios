@@ -1,0 +1,65 @@
+# 계약 시나리오(runsOn: device)를 연결된 iPhone 에서 돌리는 XCTest 호스트. 생성: xcodegen generate   실행: ../lab/run-device.sh <contract 폴더>
+# 호스트 앱은 블루투스 권한을 이미 받은 번들 ID 를 재사용한다(앱을 지우지 않는다).
+name: ContractDeviceTests
+options:
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: MC4R3V2C33
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+packages:
+  NucodeBleCore:
+    path: ..
+targets:
+  # 계약 러너 소스. product 가 아니라서 소스로 넣는다. 정적 라이브러리라 시험 번들에 한 벌만 링크된다
+  BleContract:
+    type: library.static
+    platform: iOS
+    sources: [../Sources/BleContract]
+  BleContractBackend:
+    type: library.static
+    platform: iOS
+    sources: [../Sources/BleContractBackend]
+    dependencies:
+      - target: BleContract
+      - package: NucodeBleCore
+        product: NucodeBleCore
+  ContractHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.probe.BleProbe
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "BLE 코어 계약 시험이 시험 기기와 통신합니다."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  ContractDeviceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+      # run-device.sh 가 계약 폴더를 복사해 둔다(깨끗한 checkout 에서는 .gitkeep 만 있는 빈 폴더). 기기는 Mac 경로를 못 읽으므로 시험 번들 리소스로 넣는다
+      - path: Contract
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: ContractHost
+      - target: BleContract
+      - target: BleContractBackend
+      - package: NucodeBleCore
+        product: NucodeBleCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.probe.ContractDeviceTests
+schemes:
+  ContractDeviceTests:
+    build:
+      targets:
+        ContractHost: all
+        ContractDeviceTests: [test]
+    test:
+      targets: [ContractDeviceTests]

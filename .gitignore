@@ -6,3 +6,6 @@ xcuserdata/
 .DS_Store
 # CI 가 받는 루트 저장소
 nucode-ble-core-root/
+DeviceTests/Contract/*
+!DeviceTests/Contract/.gitkeep
+DeviceTests/build/

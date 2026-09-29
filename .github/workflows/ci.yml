@@ -11,32 +11,9 @@ concurrency:
 
 jobs:
   test:
-    # 지금 패키지는 Foundation 만 쓰므로 Linux 에서 돈다.
-    # CoreBluetooth 코드가 들어오는 4단계에서 macOS runner 로 옮긴다
-    runs-on: ubuntu-latest
-    container: swift:6.3-noble  # 로컬 Xcode 26.6 의 Swift 6.3 과 맞춘다
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      # 배포 키로 받으려면 ssh 가 필요한데 swift 이미지에는 없다
-      - name: Install ssh client
-        run: apt-get update && apt-get install -y --no-install-recommends openssh-client
-
-      # 계약 폴더(contract/)가 있는 루트 저장소. 패키지의 Sources/Tests 밖에 받는다
-      - uses: actions/checkout@v4
-        with:
-          repository: pdev-jay/nucode-ble-core
-          ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
-          path: nucode-ble-core-root
-
-      - name: Test
-        run: BLE_CONTRACT_DIR="$GITHUB_WORKSPACE/nucode-ble-core-root/contract" swift test
-
-  macos:
     # 이 Mac 의 self-hosted runner(nucode-mac-ios, 2026-09-29 등록). GitHub macOS runner 는 비공개 저장소에서
     # 10배로 차감되어 쓰지 않는다. Mac 이 꺼져 있으면 이 job 은 대기열에서 기다린다.
-    # 4단계에서 CoreBluetooth 코드가 들어오면 이 job 만 남기고 위 Linux job 은 뺀다
+    # CoreBluetooth 를 쓰므로 Linux 에서는 돌지 않는다. macOS job 하나만 둔다
     runs-on: [self-hosted, macOS, xcode]
     timeout-minutes: 20
     steps:
