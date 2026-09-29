@@ -141,7 +141,7 @@ final class CoreBluetoothCentral: NSObject, CentralPort, CBCentralManagerDelegat
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: (any Error)?) {
         nonisolated(unsafe) let peripheral = peripheral
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         BLECoreActor.assumeIsolated {
             delegate?.central(self, didFailToConnect: port(for: peripheral), error: failure)
             held[peripheral.identifier] = nil
@@ -150,7 +150,7 @@ final class CoreBluetoothCentral: NSObject, CentralPort, CBCentralManagerDelegat
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: (any Error)?) {
         nonisolated(unsafe) let peripheral = peripheral
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         BLECoreActor.assumeIsolated {
             delegate?.central(self, didDisconnect: port(for: peripheral), error: failure)
             held[peripheral.identifier] = nil

@@ -65,7 +65,7 @@ final class ErrorMappingTests: XCTestCase {
 
     func testPortErrorFromNSErrorKeepsDomainCodeAndMessage() {
         let ns = NSError(domain: "CBATTErrorDomain", code: 15, userInfo: [NSLocalizedDescriptionKey: "enc"])
-        let port = PlatformErrorMapping.portError(ns)
+        let port = PortErrorConversion.portError(ns)
         XCTAssertEqual(port, PortError(domain: "CBATTErrorDomain", code: 15, message: "enc"))
     }
 

@@ -1,18 +1,9 @@
 import Foundation
 
 /// 공개 client: 상태 없는 Sendable view. 상태는 `BLERuntime` 이 `@BLECoreActor` 위에서 갖는다.
-/// 공개 생성자는 CoreBluetooth 드라이버와 `Bundle.main` 환경을 쓴다. `package` 생성자는 시험이 포트·시계·환경을 주입한다.
+/// 공개 생성자는 `Factory/BLEClient+CoreBluetooth.swift` 에 있다(CoreBluetooth 드라이버와 `Bundle.main` 환경을 쓴다). `package` 생성자는 시험이 포트·시계·환경을 주입한다.
 public final class BLEClient: Sendable {
     package let runtime: BLERuntime
-
-    /// CoreBluetooth 로 잇는다. manager 는 `start()` 에서 만든다. 같은 프로세스에서 같은 `restoreIdentifier` 를 두 번 쓰면 trap 한다.
-    public convenience init(options: BLEOptions = BLEOptions()) {
-        RestoreIdentifierGuard.claimOrTrap(options.restoreIdentifier)
-        let identifier = options.restoreIdentifier
-        self.init(options: options, environment: .bundle(.main)) {
-            CoreBluetoothCentral(restoreIdentifier: identifier)
-        }
-    }
 
     package init(
         options: BLEOptions = BLEOptions(),

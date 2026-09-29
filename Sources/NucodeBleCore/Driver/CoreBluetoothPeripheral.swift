@@ -137,7 +137,7 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     // MARK: CBPeripheralDelegate (core 큐에서 온다)
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: (any Error)?) {
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         BLECoreActor.assumeIsolated {
             refreshServices()
             delegate?.peripheral(self, didDiscoverServices: failure == nil ? orderedServiceRefs() : [], error: failure)
@@ -145,7 +145,7 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: (any Error)?) {
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         nonisolated(unsafe) let service = service
         BLECoreActor.assumeIsolated {
             guard let ref = serviceRefs[ObjectIdentifier(service)] else { return }
@@ -156,7 +156,7 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: (any Error)?) {
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         let value = characteristic.value
         nonisolated(unsafe) let characteristic = characteristic
         BLECoreActor.assumeIsolated {
@@ -166,7 +166,7 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: (any Error)?) {
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         nonisolated(unsafe) let characteristic = characteristic
         BLECoreActor.assumeIsolated {
             guard let ref = characteristicRefs[ObjectIdentifier(characteristic)] else { return }
@@ -179,7 +179,7 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
-        let failure = error.map(PlatformErrorMapping.portError)
+        let failure = error.map(PortErrorConversion.portError)
         let notifying = characteristic.isNotifying
         nonisolated(unsafe) let characteristic = characteristic
         BLECoreActor.assumeIsolated {

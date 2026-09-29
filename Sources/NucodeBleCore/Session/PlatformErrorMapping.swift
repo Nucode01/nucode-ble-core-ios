@@ -26,9 +26,4 @@ enum PlatformErrorMapping {
     static func gattFailure(_ error: PortError, operation: String) -> BLEFailure {
         GattFailure.status(error, operation: operation)
     }
-
-    static func portError(_ error: any Error) -> PortError {
-        let ns = error as NSError
-        return PortError(domain: ns.domain, code: ns.code, message: ns.localizedDescription)
-    }
 }
