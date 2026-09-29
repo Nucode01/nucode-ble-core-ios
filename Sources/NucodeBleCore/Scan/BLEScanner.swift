@@ -15,61 +15,42 @@ package final class BLEScanner {
     package let states = StateBroadcaster<ScanState>(.idle)
     package let results = EventHub<ScanResult>()
 
-    private struct InternalScan {
-        let services: [BLEUUID]
-        let onDiscover: @BLECoreActor (any PeripheralPort, AdvertisementData, Int) -> Void
-    }
+    private typealias DiscoverHandler = @BLECoreActor (any PeripheralPort, AdvertisementData, Int) -> Void
 
-    private struct PlatformScan: Equatable {
-        let services: [BLEUUID]?
-        let allowDuplicates: Bool
+    /// 광고 하나가 도착한 순간의 값. `deliverInternal` 이 이 값을 참여자에게 넘긴다
+    private struct Discovery {
+        let peripheral: any PeripheralPort
+        let advertisement: AdvertisementData
+        let rssi: Int
     }
 
     private var central: (any CentralPort)?
-    private var adapterIsReady = false
-    private var userRequest: ScanRequest?
-    private var internalScans: [UInt64: InternalScan] = [:]
-    private var nextInternalID: UInt64 = 0
-    private var applied: PlatformScan?
-    /// 복원된 플랫폼 스캔이 돌고 있을 수 있다. 다음 합집합 판정 때 원하는 스캔으로 덮거나 멈춘다
-    private var restoredPlatformScan = false
-    private(set) package var isClosed = false
+    /// 스캔 수명 상태의 유일한 주인. 대입은 `dispatch` 안에서만 한다
+    private var core = ScanCore.State()
+    /// 내부 참여자의 결과 전달 클로저(순서 없음, 순서는 Core 가 정한다)
+    private var handlers: [UInt64: DiscoverHandler] = [:]
 
     package init() {}
 
-    package var isUserScanning: Bool { userRequest != nil }
-    package var request: ScanRequest? { userRequest }
+    package var isClosed: Bool { ScanCore.isClosed(core) }
+    package var isUserScanning: Bool { ScanCore.isUserScanning(core) }
+    package var request: ScanRequest? { ScanCore.request(core) }
 
     package func attach(_ central: any CentralPort, adapter: AdapterState) {
         self.central = central
-        adapterChanged(adapter)
+        dispatch(.attached(adapter: adapter))
     }
 
     // MARK: 사용자 스캔
 
     /// 어댑터 판정과 닫힘 확인은 호출자가 이 호출 직전에 한다. 같은 요청은 무동작, 다른 요청은 `SCAN_ALREADY_RUNNING`.
     package func start(_ request: ScanRequest) throws {
-        guard !isClosed else { throw BLEError(failure: BLEFailure(code: .clientClosed, message: "클라이언트가 닫혔다")) }
-        if let running = userRequest {
-            guard running == request else {
-                throw BLEError(failure: BLEFailure(code: .scanAlreadyRunning, message: "다른 요청의 스캔이 이미 돈다"))
-            }
-            return
-        }
-        userRequest = request
-        reconcile()
-        states.send(.scanning)
+        if let failure = dispatch(.startRequested(request)) { throw BLEError(failure: failure) }
     }
 
     /// 멱등. 실패로 끝난 상태에서 부르면 `Idle` 로 돌아간다.
     package func stop() {
-        guard userRequest != nil else {
-            if case .failed = states.value { states.send(.idle) }
-            return
-        }
-        userRequest = nil
-        reconcile()
-        states.send(.idle)
+        dispatch(.stopRequested)
     }
 
     // MARK: 복원
@@ -77,13 +58,7 @@ package final class BLEScanner {
     /// 복원 콜백에서 부른다. 등록된 스캔이 있으면 원래 조건 전체로 다시 걸고, 없으면 복원된 스캔을 멈춘다.
     /// 어댑터가 아직 Ready 가 아니면 Ready 가 될 때 반영한다.
     package func restore(registered request: ScanRequest?) {
-        guard !isClosed else { return }
-        restoredPlatformScan = true
-        if let request, userRequest == nil {
-            userRequest = request
-            states.send(.scanning)
-        }
-        reconcile()
+        dispatch(.restored(registered: request))
     }
 
     // MARK: 내부 확보 스캔
@@ -93,17 +68,16 @@ package final class BLEScanner {
         services: [BLEUUID],
         onDiscover: @escaping @BLECoreActor (any PeripheralPort, AdvertisementData, Int) -> Void
     ) -> InternalScanToken {
-        let id = nextInternalID
-        nextInternalID += 1
-        internalScans[id] = InternalScan(services: services, onDiscover: onDiscover)
-        reconcile()
+        let id = ScanCore.nextInternalID(core)
+        handlers[id] = onDiscover
+        dispatch(.internalJoined(services: services))
         return InternalScanToken(id: id)
     }
 
     /// 멱등
     package func release(_ token: InternalScanToken) {
-        guard internalScans.removeValue(forKey: token.id) != nil else { return }
-        reconcile()
+        handlers.removeValue(forKey: token.id)
+        dispatch(.internalLeft(token.id))
     }
 
     // MARK: 어댑터
@@ -111,77 +85,60 @@ package final class BLEScanner {
     /// Ready 를 벗어나면(Unknown 포함) 사용자 스캔은 `Idle(Failed:SCAN_STOPPED_BY_ADAPTER)` 로 끝난다.
     /// 내부 스캔은 남고, Ready 로 돌아오면 플랫폼 스캔을 다시 시작한다.
     package func adapterChanged(_ state: AdapterState) {
-        let ready = state == .ready
-        guard ready != adapterIsReady || !ready else { return }
-        adapterIsReady = ready
-        if !ready {
-            applied = nil
-            if userRequest != nil {
-                userRequest = nil
-                states.send(.failed(BLEFailure(code: .scanStoppedByAdapter, message: "스캔 중 어댑터가 Ready 를 벗어났다")))
-            }
-        } else {
-            reconcile()
-        }
+        dispatch(.adapterChanged(state))
     }
 
     // MARK: 플랫폼 콜백
 
     package func didDiscover(_ peripheral: any PeripheralPort, advertisement: AdvertisementData, rssi: Int) {
-        guard !isClosed else { return }
-        if let request = userRequest, ScanMatcher.matches(request.filter, advertisement) {
-            results.emit(ScanResult(peripheralID: peripheral.id, rssi: rssi, advertisement: advertisement))
-        }
-        for id in internalScans.keys.sorted() {
-            guard let scan = internalScans[id] else { continue }
-            if scan.services.isEmpty || scan.services.contains(where: advertisement.serviceUUIDs.contains) {
-                scan.onDiscover(peripheral, advertisement, rssi)
-            }
-        }
+        dispatch(.discovered(advertisement), discovery: Discovery(peripheral: peripheral, advertisement: advertisement, rssi: rssi))
     }
 
     // MARK: 닫기
 
     package func close() {
-        guard !isClosed else { return }
-        userRequest = nil
-        internalScans.removeAll()
-        reconcile()
-        isClosed = true
-        states.close()
-        results.close()
+        handlers.removeAll()
+        dispatch(.close)
     }
 
-    // MARK: 합집합
+    // MARK: 사건 실행
 
-    /// 참여자 중 하나라도 서비스 조건이 없으면 플랫폼 필터는 없다(`nil`). 아니면 서비스 UUID 의 합집합.
-    /// AllowDuplicates 는 사용자 요청이 `lowLatency` 일 때만 켠다.
-    private func desiredPlatformScan() -> PlatformScan? {
-        var participants: [[BLEUUID]] = []
-        if let userRequest { participants.append(userRequest.filter.serviceUUIDs) }
-        participants += internalScans.keys.sorted().compactMap { internalScans[$0]?.services }
-        guard !participants.isEmpty else { return nil }
-        let services: [BLEUUID]?
-        if participants.contains(where: \.isEmpty) {
-            services = nil
-        } else {
-            var union: [BLEUUID] = []
-            for uuid in participants.joined() where !union.contains(uuid) { union.append(uuid) }
-            services = union
+    /// 사건을 Core 에 넘겨 새 상태를 먼저 저장하고, 할 일을 순서대로 실행한다.
+    /// 시작이 거절되면 그 실패를 돌려준다.
+    @discardableResult
+    private func dispatch(_ event: ScanCore.Event, discovery: Discovery? = nil) -> BLEFailure? {
+        let (next, effects) = ScanCore.step(core, event)
+        core = next
+        var rejection: BLEFailure?
+        for effect in effects {
+            if case .rejectStart(let failure) = effect {
+                rejection = rejection ?? failure
+            } else {
+                perform(effect, discovery: discovery)
+            }
         }
-        return PlatformScan(services: services, allowDuplicates: userRequest?.options.mode == .lowLatency)
+        return rejection
     }
 
-    private func reconcile() {
-        guard let central, adapterIsReady else { return }
-        let desired = desiredPlatformScan()
-        guard desired != applied || restoredPlatformScan else { return }
-        restoredPlatformScan = false
-        applied = desired
-        if let desired {
-            central.scanForPeripherals(services: desired.services, allowDuplicates: desired.allowDuplicates)
-        } else {
-            central.stopScan()
+    private func perform(_ effect: ScanCore.Effect, discovery: Discovery?) {
+        switch effect {
+        case .platformScan(let services, let allowDuplicates):
+            central?.scanForPeripherals(services: services, allowDuplicates: allowDuplicates)
+        case .platformStop:
+            central?.stopScan()
+        case .publish(let value):
+            states.send(value)
+        case .rejectStart:
+            break
+        case .emitResult:
+            guard let discovery else { break }
+            results.emit(ScanResult(peripheralID: discovery.peripheral.id, rssi: discovery.rssi, advertisement: discovery.advertisement))
+        case .deliverInternal(let id):
+            guard let discovery, let handler = handlers[id] else { break }
+            handler(discovery.peripheral, discovery.advertisement, discovery.rssi)
+        case .closeStreams:
+            states.close()
+            results.close()
         }
     }
 }

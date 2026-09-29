@@ -166,6 +166,21 @@ final class AdapterGateTests: XCTestCase {
         client.close()
     }
 
+    /// 게시 도중 observer 가 대기 중인 gate 를 취소하면 취소가 이긴다(0.2.0: observer 가 판정보다 먼저 돌았다)
+    @BLECoreActor
+    func testCancelInsideObserverWinsOverVerdict() async {
+        let central = Support.makeCentral(state: .unknown, authorization: .notDetermined)
+        let client = Support.makeClient { central }
+        client.start()
+        let gate = client.runtime.adapter.gate()
+        client.runtime.adapter.observe { _ in gate.cancel() }
+        central.setAdapter(.poweredOff, authorization: .allowedAlways)
+        var cancelled = false
+        do { try await gate.value() } catch is CancellationError { cancelled = true } catch {}
+        XCTAssertTrue(cancelled)
+        client.close()
+    }
+
     @BLECoreActor
     func testCloseEndsPendingWaitWithClientClosed() async {
         let central = Support.makeCentral(state: .unknown, authorization: .notDetermined)

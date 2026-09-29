@@ -245,8 +245,9 @@ package final class Session {
 
     private func adapterAdmitted(_ attempt: ConnectAttempt) {
         guard self.attempt === attempt else { return }
-        guard context.adapter.current == .ready, let central = context.central else {
-            abort(attempt, BLEError(failure: BLEFailure(code: .adapterUnavailable, message: "판정 뒤 어댑터가 Ready 를 벗어났다")))
+        let recheck = AdapterCore.recheck(context.adapter.current)
+        guard recheck == nil, let central = context.central else {
+            abort(attempt, BLEError(failure: recheck ?? AdapterCore.leftReady))
             return
         }
         attempt.gate = nil

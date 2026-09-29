@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 구조 규칙 시험(R1·R2·R3·R4). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
+// 구조 규칙 시험(R1·R2·R3·R4·R5). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
 // 규칙 함수는 [패키지: [상대경로: 소스]] 를 받는 순수 함수이고, 실제 소스와 자기 점검이 같은 함수를 부른다.
 // 위반 한 줄: "<규칙 id>: <상대경로>:<줄> <from> -> <to> (<이름>)". 규칙 id 는 시험 이름과 같다(게이트가 센다).
 
@@ -722,6 +722,137 @@ private enum RuleScanner {
         return violations
     }
 
+    /// 스캔·어댑터 판정 실패 코드 식별자와 코드 문자열. Core·Model 밖에서 쓰면 위반(f)
+    static let scanAdapterFailureIdentifiers: Set<String> = ["adapterUnavailable", "bleUnsupported", "permissionDenied", "scanAlreadyRunning", "scanStoppedByAdapter"]
+    static let scanAdapterFailureCodes = ["ADAPTER_UNAVAILABLE", "BLE_UNSUPPORTED", "PERMISSION_DENIED", "SCAN_ALREADY_RUNNING", "SCAN_STOPPED_BY_ADAPTER"]
+    /// 스캔 수명·어댑터 판정 대기 상태를 담는 저장 속성 이름. domain 에서 가변으로 들면 위반(g)
+    static let scanAdapterStateNames = ["userRequest", "internalScans", "nextInternalID", "applied", "adapterIsReady", "restoredPlatformScan",
+                                        "deadlineReached", "pendingGates", "nextGateID"]
+
+    static func scanAdapterCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification) -> [String] {
+        let id = "R5_scanAdapterCoreIsPure"
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // a: 스캔 Core 와 어댑터 Core 가 core 층에 각각 정확히 한 번 있고 step 이 있다(`no core package` 는 한 번만)
+        violations += coreDeclared(id: id, coreType: "ScanCore", analysis: a, classification: classification)
+        violations += coreDeclared(id: id, coreType: "AdapterCore", analysis: a, classification: classification)
+            .filter { $0 != "\(id): no core package" }
+
+        // b~d2
+        violations += coreIsPure(id: id, sources: sources, classification: classification)
+
+        // e: domain 이 두 Core 의 step 을 각각 부른다
+        violations += domainCallsStep(id: id, coreType: "ScanCore", analysis: a, classification: classification)
+        violations += domainCallsStep(id: id, coreType: "AdapterCore", analysis: a, classification: classification)
+
+        // f: 판정표·스캔 수명 실패는 Core 만 만든다 — Model·Core 밖에서 식별자와 코드 문자열 리터럴 금지
+        for entry in a.files {
+            let k = classification.kind(of: entry.package)
+            if k == .model || k == .core { continue }
+            for (number, line) in numbered(entry.lines) {
+                for name in identifiers(in: line) where scanAdapterFailureIdentifiers.contains(name) {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) decides scan/adapter failure (\(name))")
+                }
+            }
+            let raw = splitLines(sources[entry.package]![entry.file]!)
+            for (number, line) in numbered(raw) where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                for code in scanAdapterFailureCodes {
+                    let literal = "\"" + code + "\""
+                    for _ in 0..<(line.components(separatedBy: literal).count - 1) {
+                        violations.append("\(id): \(entry.file):\(number) \(entry.package) decides scan/adapter failure (\(literal))")
+                    }
+                }
+            }
+        }
+
+        // g: 스캔 수명·판정 대기 상태를 domain 이 저장 속성으로 들지 않는다.
+        //    계산 속성(`var x: T { … }`, 초기값 `=` 없음, didSet/willSet 관찰자 아님)만 제외한다
+        let held = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])var\s+("# + scanAdapterStateNames.joined(separator: "|") + #")(?![A-Za-z0-9_])"#)
+        let gateArray = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])var\s+(\w+)\s*:\s*\[\s*AdapterGate\s*\]"#)
+        let computed = try! NSRegularExpression(pattern: #"^[^={]*\{(?!\s*(?:didSet|willSet)\b)"#)
+        //    이름을 바꿔도 잡히도록 타입으로도 본다: (1) 스캔 Core 를 부르는 파일의 저장 속성이 스캔 요청·플랫폼 스캔 타입을 든다
+        //    (2) AdapterGate 를 든 컬렉션(Set·배열·사전)은 `[GateID: AdapterGate]` 핸들 저장소만 허용한다(순서·기한은 Core 상태에 있다)
+        let scanTyped = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])var\s+(\w+)\s*:[^={]*(?<![A-Za-z0-9_])(?:ScanRequest|PlatformScan|InternalScan)(?![A-Za-z0-9_])"#)
+        let gateSet = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])var\s+(\w+)\s*(?::|=)[^{]*(?:Set\s*<\s*AdapterGate\s*>|\[[^\]:]*:\s*AdapterGate\s*\])"#)
+        let gateHandleStore = try! NSRegularExpression(pattern: #"\[\s*(?:\w+\s*\.\s*)?GateID\s*:\s*AdapterGate\s*\]"#)
+        let scanCall = try! NSRegularExpression(pattern: #"\bScanCore\s*\.\s*step\s*\("#)
+        for entry in a.files where classification.isDomainLike(entry.package) {
+            let runsScanCore = entry.lines.contains { scanCall.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+            for (number, line) in numbered(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                var names: [String] = []
+                var extra: [(NSRegularExpression, Bool)] = [(gateSet, true)]
+                if runsScanCore { extra.append((scanTyped, false)) }
+                for (regex, isGate) in extra {
+                    for m in regex.matches(in: line, range: range) {
+                        if isGate, gateHandleStore.firstMatch(in: line, range: range) != nil { continue }
+                        let rest = String(line[Range(m.range, in: line)!.upperBound...])
+                        if computed.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)) != nil { continue }
+                        let name = String(line[Range(m.range(at: 1), in: line)!])
+                        if !names.contains(name) { names.append(name) }
+                    }
+                }
+                for regex in [held, gateArray] {
+                    for m in regex.matches(in: line, range: range) {
+                        let rest = String(line[Range(m.range, in: line)!.upperBound...])
+                        if computed.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)) != nil { continue }
+                        let name = String(line[Range(m.range(at: 1), in: line)!])
+                        if !names.contains(name) { names.append(name) }
+                    }
+                }
+                for name in names {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) holds scan/adapter state (var \(name))")
+                }
+            }
+        }
+
+        // h: 공개 scanState·adapterState 게시(`states.send(`)는 dispatch·perform 안에서만 한다
+        let send = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])states\s*\.\s*send\s*\("#)
+        let publishers: Set<String> = ["dispatch", "perform"]
+        //    dispatch·perform 는 이름만이 아니라 Core step 을 부르는 파일(= Runtime)에 있어야 인정한다
+        let adapterCall = try! NSRegularExpression(pattern: #"\bAdapterCore\s*\.\s*step\s*\("#)
+        for entry in a.files where classification.isDomainLike(entry.package) {
+            let runsCore = entry.lines.contains { l in
+                let r = NSRange(l.startIndex..., in: l)
+                return scanCall.firstMatch(in: l, range: r) != nil || adapterCall.firstMatch(in: l, range: r) != nil
+            }
+            for (number, line, openNames) in functionScopes(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                if runsCore, openNames.contains(where: { publishers.contains($0) }) { continue }
+                for _ in send.matches(in: line, range: range) {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) publishes scan/adapter state outside dispatch (states.send()")
+                }
+            }
+        }
+        return violations
+    }
+
+    /// 줄마다 그 줄 끝에서 열려 있는 함수 이름들을 붙인다(R3 g·R5 h 공용).
+    /// 본문 여는 중괄호 앞의 쓰기는 이 줄의 바깥 함수에 속한다. 같은 줄의 쓰기는 줄 끝 상태로 본다
+    static func functionScopes(_ lines: [String]) -> [(number: Int, text: String, openNames: [String])] {
+        let funcName = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])func\s+([A-Za-z_]\w*)"#)
+        var depth = 0
+        var pending: String?
+        var open: [(name: String, depth: Int)] = []
+        var result: [(number: Int, text: String, openNames: [String])] = []
+        for (number, line) in numbered(lines) {
+            let range = NSRange(line.startIndex..., in: line)
+            if let m = funcName.firstMatch(in: line, range: range) { pending = String(line[Range(m.range(at: 1), in: line)!]) }
+            for ch in line {
+                if ch == "{" {
+                    depth += 1
+                    if let name = pending { open.append((name, depth)); pending = nil }
+                } else if ch == "}" {
+                    if open.last?.depth == depth { open.removeLast() }
+                    depth -= 1
+                }
+            }
+            result.append((number, line, open.map { $0.name }))
+        }
+        return result
+    }
+
     static func connectionCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification, coreType: String = "ConnectionCore") -> [String] {
         let id = "R3_connectionCoreIsPure"
         let a = analyze(sources)
@@ -762,26 +893,11 @@ private enum RuleScanner {
         // g: 연결 상태 쓰기(`core` 대입, `state.send(`)는 dispatch·perform 안에서만 한다.
         // `injectPhaseForTesting` 는 시험이 단계를 심는 이름 붙은 입구 하나다. 그 밖의 함수는 위반이다
         let writes = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_.])(?<!var\s)(?<!let\s)core\s*(?:\.\s*\w+\s*)*(?:=|\+=|-=)(?![=])|(?<![A-Za-z0-9_])state\s*\.\s*send\s*\("#)
-        let funcName = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])func\s+([A-Za-z_]\w*)"#)
         let writers: Set<String> = ["dispatch", "perform", "injectPhaseForTesting"]
         for entry in a.files where classification.isDomainLike(entry.package) {
-            var depth = 0
-            var pending: String?
-            var open: [(name: String, depth: Int)] = []
-            for (number, line) in numbered(entry.lines) {
+            for (number, line, openNames) in functionScopes(entry.lines) {
                 let range = NSRange(line.startIndex..., in: line)
-                if let m = funcName.firstMatch(in: line, range: range) { pending = String(line[Range(m.range(at: 1), in: line)!]) }
-                // 본문 여는 중괄호 앞의 쓰기는 이 줄의 바깥 함수에 속한다. 같은 줄의 쓰기는 줄 끝 상태로 본다
-                for ch in line {
-                    if ch == "{" {
-                        depth += 1
-                        if let name = pending { open.append((name, depth)); pending = nil }
-                    } else if ch == "}" {
-                        if open.last?.depth == depth { open.removeLast() }
-                        depth -= 1
-                    }
-                }
-                let inWriter = open.contains { writers.contains($0.name) }
+                let inWriter = openNames.contains { writers.contains($0) }
                 let lineWrites = writes.matches(in: line, range: range)
                 if !lineWrites.isEmpty, !inWriter {
                     let hit = String(line[Range(lineWrites[0].range, in: line)!]).trimmingCharacters(in: .whitespaces)
@@ -856,6 +972,10 @@ final class ArchitectureRulesTests: XCTestCase {
 
     func test_R4_gattQueueCoreIsPure() throws {
         report(RuleScanner.gattQueueCoreIsPure(try loadSources(), .project))
+    }
+
+    func test_R5_scanAdapterCoreIsPure() throws {
+        report(RuleScanner.scanAdapterCoreIsPure(try loadSources(), .project))
     }
 
     // MARK: 자기 점검 — 같은 규칙 함수를 합성 소스에 부른다(이름에 규칙 id 를 넣지 않는다)
@@ -1149,6 +1269,137 @@ final class ArchitectureRulesTests: XCTestCase {
             XCTAssertEqual(core("struct S {\n    " + body + "\n}"), [], body)
             XCTAssertEqual(check(driver: "struct DriverThing {\n    " + body + "\n}"), [], body)
         }
+    }
+
+    func test_scanAdapterRuleScannerSelfCheck() {
+        let c = PackageClassification(model: ["M"], ports: ["P"], driver: ["D"], factory: ["F"], domain: ["Dom"], core: ["C"])
+        let id = "R5_scanAdapterCoreIsPure"
+        let scanCore = "enum ScanCore {\n    static func step(_ s: ModelThing, _ e: Int) -> ModelThing { s }\n}"
+        let adapterCore = "enum AdapterCore {\n    static func step(_ s: ModelThing, _ e: Int) -> ModelThing { s }\n}"
+        let baseCoreFiles = ["C/ScanCore.swift": scanCore, "C/AdapterCore.swift": adapterCore]
+        let baseDom = "struct DomThing {}\nfunc run() { _ = ScanCore.step(ModelThing(), 1); _ = AdapterCore.step(ModelThing(), 1) }"
+
+        /// coreFiles 가 비면 C 패키지를 뺀다. extra 는 C/X.swift 로 더한다.
+        func check(coreFiles: [String: String] = baseCoreFiles, extra: String? = nil, dom: String = baseDom,
+                   model: String = "struct ModelThing {}", ports: String = "struct PortThing {}", driver: String = "struct DriverThing {}",
+                   factory: String = "struct FactoryThing {}") -> [String] {
+            var sources: PackageSources = [
+                "M": ["M/X.swift": model],
+                "P": ["P/X.swift": ports],
+                "D": ["D/X.swift": driver],
+                "F": ["F/X.swift": factory],
+                "Dom": ["Dom/X.swift": dom],
+            ]
+            var files = coreFiles
+            if let extra { files["C/X.swift"] = extra }
+            if !files.isEmpty { sources["C"] = files }
+            return RuleScanner.scanAdapterCoreIsPure(sources, c)
+        }
+        func core(_ body: String) -> [String] { check(extra: body) }
+        func domain(_ body: String) -> [String] { check(dom: baseDom + "\n" + body) }
+
+        XCTAssertEqual(check(), [])
+
+        // a: 두 Core 가 core 층에 각각 정확히 한 번, step 과 함께. no core package 는 한 번만
+        XCTAssertEqual(check(coreFiles: [:]), ["\(id): no core package", "\(id): ScanCore not declared in core", "\(id): AdapterCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/ScanCore.swift": scanCore]), ["\(id): AdapterCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/AdapterCore.swift": adapterCore]), ["\(id): ScanCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: baseCoreFiles.merging(["C/B.swift": "struct ScanCore {\n    func step() {}\n}"]) { $1 }), ["\(id): ScanCore declared 2 times"])
+        XCTAssertEqual(check(coreFiles: ["C/ScanCore.swift": scanCore, "C/AdapterCore.swift": "enum AdapterCore {}"]), ["\(id): AdapterCore has no step"])
+        XCTAssertEqual(check(coreFiles: ["C/ScanCore.swift": "enum ScanCore {\n    static func step<T>(_ s: T) -> T { s }\n}", "C/AdapterCore.swift": adapterCore]), [])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "struct Other {}"], driver: "enum ScanCore {\n    static func step() {}\n}"),
+                       ["\(id): ScanCore not declared in core", "\(id): AdapterCore not declared in core"])
+
+        // b~d2: 공유 순수성 검사가 R5 id 로 불린다
+        XCTAssertEqual(core("import CoreBluetooth"), ["\(id): C/X.swift:1 C imports CoreBluetooth"])
+        XCTAssertEqual(core("func f() async {}"), ["\(id): C/X.swift:1 C uses async"])
+        XCTAssertEqual(core("final class Box {}"), ["\(id): C/X.swift:1 C declares class Box"])
+        XCTAssertEqual(core("func f(_ p: PortThing) {}"), ["\(id): C/X.swift:1 C -> P (PortThing)"])
+        XCTAssertEqual(core("func f(_ p: ModelThing) {}"), [])
+
+        // e: domain 이 ScanCore.step·AdapterCore.step 을 각각 부른다(다른 Core 의 step 은 세지 않는다)
+        let noScan = "\(id): domain does not call ScanCore.step"
+        let noAdapter = "\(id): domain does not call AdapterCore.step"
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = AdapterCore.step(ModelThing(), 1) }"), [noScan])
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = ScanCore.step(ModelThing(), 1) }"), [noAdapter])
+        XCTAssertEqual(check(dom: "struct DomThing {}"), [noScan, noAdapter])
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = ScanCore . step (ModelThing(), 1); _ = AdapterCore . step (ModelThing(), 1) }"), [])
+        let calls = "\nfunc go() { _ = ScanCore.step(ModelThing(), 1); _ = AdapterCore.step(ModelThing(), 1) }"
+        XCTAssertEqual(check(dom: "struct DomThing {}", driver: "struct DriverThing {}" + calls), [noScan, noAdapter])
+        XCTAssertEqual(check(dom: "struct DomThing {}", factory: "struct FactoryThing {}" + calls), [noScan, noAdapter])
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = GattQueueCore.step(ModelThing(), 1); _ = ConnectionCore.step(ModelThing(), 1) }"), [noScan, noAdapter])
+
+        // f: Core·Model 밖에서 판정표·스캔 수명 실패 식별자와 코드 문자열 금지
+        let failAt = { (file: String, pkg: String, line: Int, what: String) in ["\(id): \(file):\(line) \(pkg) decides scan/adapter failure (\(what))"] }
+        XCTAssertEqual(domain("let c = FailureCode.scanAlreadyRunning"), failAt("Dom/X.swift", "Dom", 3, "scanAlreadyRunning"))
+        for name in ["adapterUnavailable", "bleUnsupported", "permissionDenied", "scanAlreadyRunning", "scanStoppedByAdapter"] {
+            XCTAssertEqual(domain("let c = FailureCode.\(name)"), failAt("Dom/X.swift", "Dom", 3, name), name)
+        }
+        XCTAssertEqual(domain("f(code: .adapterUnavailable)"), failAt("Dom/X.swift", "Dom", 3, "adapterUnavailable"))
+        XCTAssertEqual(domain("let c = FailureCode(value: \"SCAN_STOPPED_BY_ADAPTER\", category: .scan)"),
+                       failAt("Dom/X.swift", "Dom", 3, "\"SCAN_STOPPED_BY_ADAPTER\""))
+        for code in ["ADAPTER_UNAVAILABLE", "BLE_UNSUPPORTED", "PERMISSION_DENIED", "SCAN_ALREADY_RUNNING", "SCAN_STOPPED_BY_ADAPTER"] {
+            XCTAssertEqual(domain("let c = X(\"\(code)\")").count, 1, code)
+        }
+        let failLine = "struct Local {}\nlet c = FailureCode.adapterUnavailable"
+        XCTAssertEqual(check(driver: failLine), failAt("D/X.swift", "D", 2, "adapterUnavailable"))
+        XCTAssertEqual(check(factory: failLine), failAt("F/X.swift", "F", 2, "adapterUnavailable"))
+        XCTAssertEqual(check(ports: failLine), failAt("P/X.swift", "P", 2, "adapterUnavailable"))
+        XCTAssertEqual(check(model: failLine), [])
+        XCTAssertEqual(core("let c = FailureCode.adapterUnavailable"), [])
+        XCTAssertEqual(check(driver: "struct DriverThing {}\nlet c = X(\"BLE_UNSUPPORTED\")"), failAt("D/X.swift", "D", 2, "\"BLE_UNSUPPORTED\""))
+        XCTAssertEqual(check(model: "struct ModelThing {}\nlet c = X(\"BLE_UNSUPPORTED\")"), [])
+        XCTAssertEqual(core("let c = X(\"BLE_UNSUPPORTED\")"), [])
+        for body in ["// adapterUnavailable", "let lit = \"adapterUnavailable\"", "let adapterUnavailableCount = 1", "// \"SCAN_ALREADY_RUNNING\"",
+                     "let lit = \"BLE_UNSUPPORTED_X\"", "let c = FailureCode.operationTimeout"] {
+            XCTAssertEqual(domain(body), [], body)
+        }
+
+        // g: domain 이 스캔 수명·판정 대기 상태를 저장 속성으로 들지 않는다
+        let held = { (name: String) in ["\(id): Dom/X.swift:3 Dom holds scan/adapter state (var \(name))"] }
+        XCTAssertEqual(domain("private var userRequest: Int? = nil"), held("userRequest"))
+        for name in RuleScanner.scanAdapterStateNames {
+            XCTAssertEqual(domain("var \(name) = 0"), held(name), name)
+        }
+        XCTAssertEqual(domain("private var pending: [AdapterGate] = []"), held("pending"))
+        XCTAssertEqual(domain("var gates: [AdapterGate]"), held("gates"))
+        XCTAssertEqual(domain("private var applied: Int? { didSet { log() } }"), held("applied"))
+        XCTAssertEqual(domain("var pendingGates: [AdapterGate] = []"), held("pendingGates"))
+        // 이름을 바꾼 우회: 게이트 컬렉션(Set·사전)과, 스캔 Core 를 부르는 파일의 스캔 요청·플랫폼 스캔 저장 속성
+        XCTAssertEqual(domain("var waitingGates: Set<AdapterGate> = []"), held("waitingGates"))
+        XCTAssertEqual(domain("var gates: [UInt64: AdapterGate] = [:]"), held("gates"))
+        XCTAssertEqual(domain("var byOrder: [Int: AdapterGate] = [:]"), held("byOrder"))
+        XCTAssertEqual(domain("private var activeRequest: ScanRequest?"), held("activeRequest"))
+        XCTAssertEqual(domain("private var current: PlatformScan?"), held("current"))
+        XCTAssertEqual(domain("var mine: [UInt64: InternalScan] = [:]"), held("mine"))
+        XCTAssertEqual(domain("var request: ScanRequest? { nil }"), [])
+        for body in ["var applied: Bool { true }", "let userRequest = 1", "var appliedCount = 0", "var pending: [PendingService] = []",
+                     "var gates: [AdapterCore.GateID: AdapterGate] = [:]", "var gates: [GateID: AdapterGate] = [:]", "var gate: AdapterGate?", "// var userRequest = 1"] {
+            XCTAssertEqual(domain(body), [], body)
+        }
+        // domain 밖(Core 안 멤버·Driver)은 g 밖이다
+        for body in ["var userRequest: Int? = nil", "var applied: Int?", "var pending: [AdapterGate] = []"] {
+            XCTAssertEqual(core("struct S {\n    " + body + "\n}"), [], body)
+            XCTAssertEqual(check(driver: "struct DriverThing {\n    " + body + "\n}"), [], body)
+        }
+
+        // h: domain 의 states.send( 는 dispatch·perform 함수 안에서만
+        let sendAt = { (line: Int) in ["\(id): Dom/X.swift:\(line) Dom publishes scan/adapter state outside dispatch (states.send()"] }
+        XCTAssertEqual(domain("func start() { states.send(1) }"), sendAt(3))
+        XCTAssertEqual(domain("func start() { self.states.send(1) }"), sendAt(3))
+        XCTAssertEqual(domain("func dispatch() {}\nfunc y() {\n    states.send(1)\n}"), sendAt(5))
+        XCTAssertEqual(domain("func injectPhaseForTesting() { states.send(1) }"), sendAt(3))
+        for body in ["func dispatch() {\n    states.send(1)\n}",
+                     "func perform(_ e: Int) {\n    switch e {\n    case 1:\n        states.send(1)\n    default: break\n    }\n}",
+                     "func close() { states.close() }", "func x() { state.send(1) }"] {
+            XCTAssertEqual(domain(body), [], body)
+        }
+        // dispatch·perform 라는 이름만으로는 부족하다: Core step 을 부르지 않는 파일이면 위반
+        let publisher = "func dispatch() {\n    states.send(1)\n}"
+        XCTAssertTrue(check(dom: "struct DomThing {}\n" + publisher).contains(sendAt(3)[0]))
+        let sendBody = "func start() { states.send(1) }"
+        XCTAssertEqual(check(driver: "struct DriverThing {}\n" + sendBody), [])
+        XCTAssertEqual(core(sendBody), [])
     }
 
     func test_ruleScannerSelfCheck() {

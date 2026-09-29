@@ -122,8 +122,8 @@ package final class BLERuntime: CentralPortDelegate {
             Task { @BLECoreActor in gate.cancel() }
         }
         guard !isClosed else { throw AdapterMonitor.closedError() }
-        guard adapter.current == .ready else {
-            throw BLEError(failure: BLEFailure(code: .adapterUnavailable, message: "판정 뒤 어댑터가 Ready 를 벗어났다"))
+        if let failure = AdapterCore.recheck(adapter.current) {
+            throw BLEError(failure: failure)
         }
         try scanner.start(request)
     }
