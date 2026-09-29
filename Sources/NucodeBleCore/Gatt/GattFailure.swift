@@ -29,10 +29,6 @@ enum GattFailure {
         BLEFailure(code: .operationInvalidated, message: message)
     }
 
-    static func timeout(_ operation: String, milliseconds: Int) -> BLEFailure {
-        BLEFailure(code: .operationTimeout, message: "\(operation) 이 \(milliseconds)ms 안에 끝나지 않았다")
-    }
-
     static func closed() -> BLEFailure {
         BLEFailure(code: .clientClosed, message: "클라이언트가 닫혔다")
     }

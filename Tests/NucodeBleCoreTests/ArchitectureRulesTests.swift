@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 구조 규칙 시험(R1·R2·R3). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
+// 구조 규칙 시험(R1·R2·R3·R4). Sources/NucodeBleCore 소스를 읽어 패키지(바로 아래 디렉터리) 사이의 의존을 검사한다.
 // 규칙 함수는 [패키지: [상대경로: 소스]] 를 받는 순수 함수이고, 실제 소스와 자기 점검이 같은 함수를 부른다.
 // 위반 한 줄: "<규칙 id>: <상대경로>:<줄> <from> -> <to> (<이름>)". 규칙 id 는 시험 이름과 같다(게이트가 센다).
 
@@ -631,12 +631,9 @@ private enum RuleScanner {
         return violations
     }
 
-    static func connectionCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification, coreType: String = "ConnectionCore") -> [String] {
-        let id = "R3_connectionCoreIsPure"
-        let a = analyze(sources)
+    /// a: `coreType` 이 core 층에 정확히 한 번 선언되고 step 이 있다(R3·R4 공용)
+    private static func coreDeclared(id: String, coreType: String, analysis a: Analysis, classification: PackageClassification) -> [String] {
         var violations: [String] = []
-
-        // a: 연결 Core 가 core 층에 정확히 한 번 있고 step 이 있다
         let coreFiles = a.files.filter { classification.kind(of: $0.package) == .core }
         if coreFiles.isEmpty {
             violations.append("\(id): no core package")
@@ -658,19 +655,86 @@ private enum RuleScanner {
             let hasStep = declaringFiles[0].contains { step.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
             if !hasStep { violations.append("\(id): \(coreType) has no step") }
         }
+        return violations
+    }
 
-        // b~d2
-        violations += coreIsPure(id: id, sources: sources, classification: classification)
-
-        // e: domain 이 step 을 부른다
+    /// e: domain 파일 하나 이상이 `coreType.step(` 을 부른다(R3·R4 공용)
+    private static func domainCallsStep(id: String, coreType: String, analysis a: Analysis, classification: PackageClassification) -> [String] {
         let call = try! NSRegularExpression(pattern: #"\b"# + NSRegularExpression.escapedPattern(for: coreType) + #"\s*\.\s*step\s*\("#)
         let called = a.files.contains { entry in
             classification.isDomainLike(entry.package)
                 && entry.lines.contains { call.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
         }
-        if !called {
-            violations.append("\(id): domain does not call \(coreType).step")
+        return called ? [] : ["\(id): domain does not call \(coreType).step"]
+    }
+
+    /// 큐 기한 판정 실패 코드 식별자. Core·Model 밖에서 쓰면 위반(f)
+    static let queueTimeoutIdentifier = "operationTimeout"
+    static let queueTimeoutCodeValue = "OPERATION_TIMEOUT"
+    /// 큐 차례 상태를 담는 저장 속성 이름. domain 에서 가변으로 들면 위반(g)
+    static let queueStateNames = ["waiting", "current", "inFlight", "nextOperationID", "deadlineToken"]
+
+    static func gattQueueCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification, coreType: String = "GattQueueCore") -> [String] {
+        let id = "R4_gattQueueCoreIsPure"
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // a: 큐 Core 가 core 층에 정확히 한 번 있고 step 이 있다
+        violations += coreDeclared(id: id, coreType: coreType, analysis: a, classification: classification)
+
+        // b~d2
+        violations += coreIsPure(id: id, sources: sources, classification: classification)
+
+        // e: domain 이 step 을 부른다
+        violations += domainCallsStep(id: id, coreType: coreType, analysis: a, classification: classification)
+
+        // f: 큐 기한 판정은 Core 만 한다 — Model·Core 밖에서 operationTimeout 을 만들거나 분기하지 않는다.
+        //    식별자 외에 실패 코드 문자열 "OPERATION_TIMEOUT" 도 센다(공개 init 으로 같은 코드를 만드는 길)
+        let timeoutLiteral = "\"" + queueTimeoutCodeValue + "\""
+        for entry in a.files {
+            let k = classification.kind(of: entry.package)
+            if k == .model || k == .core { continue }
+            for (number, line) in numbered(entry.lines) {
+                for name in identifiers(in: line) where name == queueTimeoutIdentifier {
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) decides operation timeout (\(name))")
+                }
+            }
+            let raw = splitLines(sources[entry.package]![entry.file]!)
+            for (number, line) in numbered(raw) where line.contains(timeoutLiteral) && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                violations.append("\(id): \(entry.file):\(number) \(entry.package) decides operation timeout (\(timeoutLiteral))")
+            }
         }
+
+        // g: 큐 차례 상태를 domain 이 저장 속성으로 들지 않는다.
+        //    계산 속성(`var x: T { … }`, 초기값 `=` 없음, didSet/willSet 관찰자 아님)만 제외한다
+        let held = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])var\s+("# + queueStateNames.joined(separator: "|") + #")(?![A-Za-z0-9_])(.*)$"#)
+        let computed = try! NSRegularExpression(pattern: #"^[^={]*\{(?!\s*(?:didSet|willSet)\b)"#)
+        for entry in a.files where classification.isDomainLike(entry.package) {
+            for (number, line) in numbered(entry.lines) {
+                let range = NSRange(line.startIndex..., in: line)
+                for m in held.matches(in: line, range: range) {
+                    let rest = String(line[Range(m.range(at: 2), in: line)!])
+                    if computed.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)) != nil { continue }
+                    violations.append("\(id): \(entry.file):\(number) \(entry.package) holds queue state (var \(line[Range(m.range(at: 1), in: line)!]))")
+                }
+            }
+        }
+        return violations
+    }
+
+    static func connectionCoreIsPure(_ sources: PackageSources, _ classification: PackageClassification, coreType: String = "ConnectionCore") -> [String] {
+        let id = "R3_connectionCoreIsPure"
+        let a = analyze(sources)
+        var violations: [String] = []
+
+        // a: 연결 Core 가 core 층에 정확히 한 번 있고 step 이 있다
+        violations += coreDeclared(id: id, coreType: coreType, analysis: a, classification: classification)
+
+        // b~d2
+        violations += coreIsPure(id: id, sources: sources, classification: classification)
+
+        // e: domain 이 step 을 부른다
+        violations += domainCallsStep(id: id, coreType: coreType, analysis: a, classification: classification)
 
         // f: domain 은 연결 상태를 스스로 정하지 않는다
         let members = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_)\]?!>])\.(\#(connectionStateMembers.joined(separator: "|")))(?![A-Za-z0-9_])"#)
@@ -788,6 +852,10 @@ final class ArchitectureRulesTests: XCTestCase {
 
     func test_R3_connectionCoreIsPure() throws {
         report(RuleScanner.connectionCoreIsPure(try loadSources(), .project))
+    }
+
+    func test_R4_gattQueueCoreIsPure() throws {
+        report(RuleScanner.gattQueueCoreIsPure(try loadSources(), .project))
     }
 
     // MARK: 자기 점검 — 같은 규칙 함수를 합성 소스에 부른다(이름에 규칙 id 를 넣지 않는다)
@@ -988,6 +1056,98 @@ final class ArchitectureRulesTests: XCTestCase {
             XCTAssertEqual(core(body), [], body)
             XCTAssertEqual(check(model: "struct ModelThing {}\n" + body), [], body)
             XCTAssertEqual(check(driver: "struct DriverThing {}\n" + body), [], body)
+        }
+    }
+
+    func test_gattQueueRuleScannerSelfCheck() {
+        let c = PackageClassification(model: ["M"], ports: ["P"], driver: ["D"], factory: ["F"], domain: ["Dom"], core: ["C"])
+        let id = "R4_gattQueueCoreIsPure"
+        let baseCore = "enum GattQueueCore {\n    static func step(_ s: ModelThing, _ e: Int) -> ModelThing { s }\n}"
+        let baseDom = "struct DomThing {}\nfunc run() { _ = GattQueueCore.step(ModelThing(), 1) }"
+
+        /// coreFiles 가 비면 C 패키지를 뺀다. extra 는 C/X.swift 로 더한다.
+        func check(coreFiles: [String: String] = ["C/GattQueueCore.swift": baseCore], extra: String? = nil, dom: String = baseDom,
+                   model: String = "struct ModelThing {}", ports: String = "struct PortThing {}", driver: String = "struct DriverThing {}",
+                   factory: String = "struct FactoryThing {}") -> [String] {
+            var sources: PackageSources = [
+                "M": ["M/X.swift": model],
+                "P": ["P/X.swift": ports],
+                "D": ["D/X.swift": driver],
+                "F": ["F/X.swift": factory],
+                "Dom": ["Dom/X.swift": dom],
+            ]
+            var files = coreFiles
+            if let extra { files["C/X.swift"] = extra }
+            if !files.isEmpty { sources["C"] = files }
+            return RuleScanner.gattQueueCoreIsPure(sources, c)
+        }
+        func core(_ body: String) -> [String] { check(extra: body) }
+
+        XCTAssertEqual(check(), [])
+
+        // a: core 층에 GattQueueCore 가 정확히 한 번, step 과 함께
+        XCTAssertEqual(check(coreFiles: [:]), ["\(id): no core package", "\(id): GattQueueCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "struct Other {}"]), ["\(id): GattQueueCore not declared in core"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": baseCore, "C/B.swift": "struct GattQueueCore {\n    func step() {}\n}"]), ["\(id): GattQueueCore declared 2 times"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "enum GattQueueCore {}"]), ["\(id): GattQueueCore has no step"])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "enum GattQueueCore {\n    static func step<T>(_ s: T) -> T { s }\n}"]), [])
+        XCTAssertEqual(check(coreFiles: ["C/A.swift": "struct Other {}"], driver: "enum GattQueueCore {\n    static func step() {}\n}"), ["\(id): GattQueueCore not declared in core"])
+
+        // b~d2: 공유 순수성 검사가 R4 id 로 불린다
+        XCTAssertEqual(core("import CoreBluetooth"), ["\(id): C/X.swift:1 C imports CoreBluetooth"])
+        XCTAssertEqual(core("func f() async {}"), ["\(id): C/X.swift:1 C uses async"])
+        XCTAssertEqual(core("final class Box {}"), ["\(id): C/X.swift:1 C declares class Box"])
+        XCTAssertEqual(core("func f(_ p: PortThing) {}"), ["\(id): C/X.swift:1 C -> P (PortThing)"])
+        XCTAssertEqual(core("func f(_ p: ModelThing) {}"), [])
+
+        // e: domain 이 GattQueueCore.step 을 부른다(ConnectionCore.step 은 세지 않는다)
+        let noCall = ["\(id): domain does not call GattQueueCore.step"]
+        XCTAssertEqual(check(dom: "struct DomThing {}"), noCall)
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = GattQueueCore . step (ModelThing(), 1) }"), [])
+        XCTAssertEqual(check(dom: "struct DomThing {}", driver: "struct DriverThing {}\nfunc go() { _ = GattQueueCore.step(ModelThing(), 1) }"), noCall)
+        XCTAssertEqual(check(dom: "struct DomThing {}", factory: "struct FactoryThing {}\nfunc go() { _ = GattQueueCore.step(ModelThing(), 1) }"), noCall)
+        XCTAssertEqual(check(dom: "struct DomThing {}\nfunc run() { _ = ConnectionCore.step(ModelThing(), 1) }"), noCall)
+
+        // f: Core·Model 밖에서 operationTimeout 식별자 금지
+        let timeoutAt = { (file: String, pkg: String) in ["\(id): \(file):3 \(pkg) decides operation timeout (operationTimeout)"] }
+        func domain(_ body: String) -> [String] { check(dom: baseDom + "\n" + body) }
+        XCTAssertEqual(domain("let c = FailureCode.operationTimeout"), timeoutAt("Dom/X.swift", "Dom"))
+        XCTAssertEqual(domain("f(code: .operationTimeout)"), timeoutAt("Dom/X.swift", "Dom"))
+        let timeoutLine = "struct Local {}\nlet c = FailureCode.operationTimeout"
+        XCTAssertEqual(check(driver: timeoutLine).count, 1)
+        XCTAssertEqual(check(factory: timeoutLine).count, 1)
+        XCTAssertEqual(check(ports: timeoutLine).count, 1)
+        XCTAssertEqual(check(driver: timeoutLine), ["\(id): D/X.swift:2 D decides operation timeout (operationTimeout)"])
+        XCTAssertEqual(check(model: timeoutLine), [])
+        XCTAssertEqual(core("let c = FailureCode.operationTimeout"), [])
+        for body in ["// operationTimeout", "let lit = \"operationTimeout\"", "let operationTimeoutMillis = 1", "// \"OPERATION_TIMEOUT\"", "let lit = \"OPERATION_TIMEOUT_X\""] {
+            XCTAssertEqual(domain(body), [], body)
+        }
+        // 실패 코드 문자열 리터럴로 만드는 길도 막는다(Model·Core 는 제외)
+        let literalAt = { (file: String, pkg: String) in ["\(id): \(file):3 \(pkg) decides operation timeout (\"OPERATION_TIMEOUT\")"] }
+        XCTAssertEqual(domain("let c = FailureCode(value: \"OPERATION_TIMEOUT\", category: .operation)"), literalAt("Dom/X.swift", "Dom"))
+        XCTAssertEqual(check(driver: "struct DriverThing {}\nlet c = X(\"OPERATION_TIMEOUT\")"), ["\(id): D/X.swift:2 D decides operation timeout (\"OPERATION_TIMEOUT\")"])
+        XCTAssertEqual(check(model: "struct ModelThing {}\nlet c = X(\"OPERATION_TIMEOUT\")"), [])
+        XCTAssertEqual(core("let c = X(\"OPERATION_TIMEOUT\")"), [])
+
+        // g: domain 이 큐 차례 상태를 저장 속성으로 들지 않는다
+        let held = { (name: String) in ["\(id): Dom/X.swift:3 Dom holds queue state (var \(name))"] }
+        XCTAssertEqual(domain("private var waiting: [Int] = []"), held("waiting"))
+        XCTAssertEqual(domain("var current: Int?"), held("current"))
+        XCTAssertEqual(domain("var inFlight = 0"), held("inFlight"))
+        XCTAssertEqual(domain("var nextOperationID: UInt64 = 0"), held("nextOperationID"))
+        XCTAssertEqual(domain("var deadlineToken = 0"), held("deadlineToken"))
+        // 관찰자가 붙은 저장 속성과 클로저로 초기화한 저장 속성도 저장 속성이다
+        XCTAssertEqual(domain("private var current: Int? { didSet { log() } }"), held("current"))
+        XCTAssertEqual(domain("var waiting: Int { willSet { log() } }"), held("waiting"))
+        XCTAssertEqual(domain("private var waiting: [Int] = { [] }()"), held("waiting"))
+        for body in ["var current: Int { 0 }", "var current: Int { get { 0 } }", "let waiting = 1", "var waitingCount = 0", "// var waiting = 1"] {
+            XCTAssertEqual(domain(body), [], body)
+        }
+        // domain 밖(Core 안 멤버·Driver)은 g 밖이다
+        for body in ["var waiting: [Int] = []", "var current: Int?", "var inFlight = 0", "var nextOperationID: UInt64 = 0", "var deadlineToken = 0"] {
+            XCTAssertEqual(core("struct S {\n    " + body + "\n}"), [], body)
+            XCTAssertEqual(check(driver: "struct DriverThing {\n    " + body + "\n}"), [], body)
         }
     }
 
