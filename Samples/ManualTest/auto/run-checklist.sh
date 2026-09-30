@@ -51,7 +51,7 @@ done
 mkdir -p "$OUT"
 LOG="$OUT/run.log"
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
-die() { say "중단: $*"; stop_notify; exit 1; }
+die() { say "중단: $*"; say "등록이 남아 시험 기기가 붙들려 있을 수 있다. 이어서 돌리지 않을 거면: $0 --only report (끝에 연결·등록 해제)"; stop_notify; exit 1; }
 
 # MARK: DK
 
@@ -162,6 +162,32 @@ wait_device_back() {
   die "재부팅 뒤 기기가 돌아오지 않음"
 }
 
+# MARK: 끝정리
+
+# 연결 해제·등록 해제 → 앱 종료 → 시험 기기가 풀렸는지 본다. 등록이 남으면 앱을 종료해도 OS 가 연결을 붙들어
+# 다른 폰(Android 점검표·lab/run.sh)이 기기를 찾지 못한다. 풀리지 않으면 기기 쪽에서 링크를 끊는다.
+release_device() {
+  run_test testReleaseDevice || true
+  local pid; pid=$(app_pid)
+  if [ -n "$pid" ]; then
+    xcrun devicectl device process terminate --device "$UDID" --pid "$pid" >>"$LOG" 2>&1 || true
+  fi
+  local status=
+  for _ in 1 2 3 4 5 6; do
+    sleep 2
+    status=$("$PY" "$RTT" STATUS 2>&1)
+    case "$status" in *conn=0*) say "기기 풀림: $status"; return 0 ;; esac
+  done
+  say "기기가 아직 연결됨($status). 기기 쪽에서 링크를 끊는다"
+  rtt LINK_DROP >/dev/null
+  sleep 3
+  status=$("$PY" "$RTT" STATUS 2>&1)
+  case "$status" in
+    *conn=0*) say "기기 풀림: $status" ;;
+    *) say "주의: 기기가 여전히 연결됨($status). iPhone 앱 등록을 확인한다" ;;
+  esac
+}
+
 # MARK: 보고
 
 report() {
@@ -257,4 +283,5 @@ if should report; then
   stop_notify
   run_test testRestoreRadios
   report
+  release_device
 fi

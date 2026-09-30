@@ -124,3 +124,6 @@ PRIME_AIRPLANE=1 auto/run-checklist.sh --only 6   # 비행기 모드가 블루�
   재부팅 한 번에(재부팅 전 둘 다 시작) 본다. 자세한 이유는 스크립트 머리말.
 - 5 는 등록 없이 새로 실행하면 대상이 없어(꺼진 채 스캔 불가) 같은 실행 안에서 끈 채 실행 → 켜고 스캔·선택 → 끄고 connect → 켜고 곧바로 connect 로 한다.
 - 대상 앱을 다시 설치하지 않도록 xctestrun 의 DependentProductPaths 에서 앱을 뺀다(설치는 앱 프로세스·연결을 끊는다).
+- 끝(report 뒤)에 `testReleaseDevice` 로 연결·복원 등록을 해제하고 앱을 종료한 뒤, RTT `STATUS` 로 시험 기기가 풀렸는지(conn=0) 본다.
+  등록이 남으면 앱을 종료해도 OS 가 연결을 붙들어 다른 폰이 기기를 찾지 못한다. 풀리지 않으면 `LINK_DROP` 으로 끊는다.
+  중간에 멈췄고 이어서 돌리지 않을 거면 `auto/run-checklist.sh --only report` 로 정리한다.

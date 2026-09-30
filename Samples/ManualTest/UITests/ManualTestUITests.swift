@@ -235,6 +235,17 @@ final class ManualTestUITests: XCTestCase {
         setBluetooth(true)
     }
 
+    /// 끝정리: 연결을 끊고 복원 등록을 지운다. 등록이 남으면 앱을 종료해도 OS 가 시험 기기 연결을 붙든다
+    func testReleaseDevice() {
+        openApp()
+        tab("세션")
+        let disconnect = element("session.disconnect")
+        if disconnect.waitForExistence(timeout: 3), disconnect.isEnabled { tap("session.disconnect") }
+        let clear = element("session.clearRegistration")
+        if clear.waitForExistence(timeout: 3), clear.isEnabled { tap("session.clearRegistration") }
+        sleep(2)
+    }
+
     // MARK: 앱 조작
 
     func openApp(file: StaticString = #filePath, line: UInt = #line) {
