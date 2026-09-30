@@ -1,0 +1,49 @@
+# 릴리스 수동 시험 앱. 생성: xcodegen generate   빌드·설치: README.md
+name: ManualTest
+options:
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: MC4R3V2C33
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+packages:
+  # 도메인·응용·인프라 계층. NucodeBleCore 는 이 패키지가 끌어온다(앱은 직접 의존하지 않는다)
+  ManualTestKit:
+    path: ManualTestKit
+targets:
+  ManualTest:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: ManualTestKit
+        product: ManualTestApplication
+      - package: ManualTestKit
+        product: ManualTestDomain
+      - package: ManualTestKit
+        product: ManualTestInfrastructure
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: BLE 수동 시험
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        NSBluetoothAlwaysUsageDescription: BLE 코어 수동 시험이 시험 기기(nRF52840)와 통신합니다.
+        # 상태 복원(restoreIdentifier)에 필요하다. 없으면 라이브러리가 start() 에서 trap 한다
+        UIBackgroundModes: [bluetooth-central]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.ble.ManualTest
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  ManualTest:
+    build:
+      targets:
+        ManualTest: all
