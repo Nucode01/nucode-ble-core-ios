@@ -68,7 +68,7 @@ public struct Checklist: Sendable {
               expectation: "최종 Disconnected(Failed:ADAPTER_UNAVAILABLE). 그 전에 Recovering(LINK_FAILED) 가 잠깐 보일 수 있다(autoReconnect 켬일 때만). 스캔 중이었으면 Idle(Failed:SCAN_STOPPED_BY_ADAPTER)",
               instruction: "Ready 에서 시작 → 설정 앱에서 블루투스 끄기"),
         .init(id: 2, title: "꺼진 상태에서 read·connect",
-              expectation: "connect 는 즉시 ADAPTER_UNAVAILABLE, read 는 NOT_CONNECTED(연결 없음) 또는 ADAPTER_UNAVAILABLE. 연결 상태는 바뀌지 않는다",
+              expectation: "connect·read 모두 즉시 ADAPTER_UNAVAILABLE(read 도 어댑터를 세션보다 먼저 본다). 연결 상태는 바뀌지 않는다",
               instruction: "꺼진 채 시작 → probe.value 읽기, 연결"),
         .init(id: 3, title: "블루투스 다시 켜기",
               expectation: "재연결 정확히 한 번 Connecting→DiscoveringServices→Configuring→Ready. 알림 재개, activeSubscriptions {probe.value}",

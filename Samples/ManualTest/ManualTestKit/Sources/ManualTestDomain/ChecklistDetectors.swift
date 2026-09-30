@@ -175,14 +175,13 @@ public enum AdapterOffDetector {
 
 // MARK: 2 꺼진 상태에서 read·connect
 
-/// 어댑터가 Ready 가 아닐 때 부른 read·connect 가 하나 이상 있고 모두 거절된다. connect 는 `ADAPTER_UNAVAILABLE`(§4·§6),
-/// read 는 세션이 끊긴 뒤라 `NOT_CONNECTED`(failure-codes.json) 또는 `ADAPTER_UNAVAILABLE`. 반환 전 실패는 연결 상태를 바꾸지 않는다(§4)
+/// 어댑터가 Ready 가 아닐 때 부른 read·connect 가 하나 이상 있고 모두 `ADAPTER_UNAVAILABLE` 로 거절된다(connect 는 §4·§6,
+/// read 는 §5 명령 진입 검사 순서: 어댑터를 세션보다 먼저 본다). 반환 전 실패는 연결 상태를 바꾸지 않는다(§4)
 public enum OffCommandsDetector {
     /// 시작 → 명령까지
     public static let timeout: TimeInterval = 120
     /// 마지막 명령 뒤 연결 상태가 그대로인지 보는 시간(어댑터가 먼저 돌아오면 그때 끝낸다)
     public static let settle: TimeInterval = 3
-    static let readCodes: Set<String> = ["NOT_CONNECTED", ChecklistDetectors.adapterUnavailable]
 
     public static func judge(armedAt: Date, entries: [LogEntry], now: Date, context: ArmContext) -> ChecklistVerdict {
         var adapter = context.adapter
@@ -203,11 +202,8 @@ public enum OffCommandsDetector {
                 guard let failure else {
                     return ChecklistVerdict(.fail("꺼진 상태에서 \(command.rawValue) 성공"), evidence: evidence)
                 }
-                if command == .connect, failure != ChecklistDetectors.adapterUnavailable {
-                    return ChecklistVerdict(.fail("connect 가 \(failure)(기대 ADAPTER_UNAVAILABLE)"), evidence: evidence)
-                }
-                if command == .read, !readCodes.contains(failure) {
-                    return ChecklistVerdict(.fail("read 가 \(failure)(기대 NOT_CONNECTED 또는 ADAPTER_UNAVAILABLE)"), evidence: evidence)
+                if failure != ChecklistDetectors.adapterUnavailable {
+                    return ChecklistVerdict(.fail("\(command.rawValue) 가 \(failure)(기대 ADAPTER_UNAVAILABLE)"), evidence: evidence)
                 }
             case let .link(id, s, _)? where devices.contains(id):
                 return ChecklistVerdict(.fail("명령 뒤 연결 상태가 바뀜: \(s.label)"), evidence: attempts.map(\.seq) + [e.seq])

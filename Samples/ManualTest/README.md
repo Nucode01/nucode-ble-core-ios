@@ -82,8 +82,8 @@ bluetooth-central 뿐이다). `launchOptions` 의 `bluetoothCentrals` 키는 재
    있어 쓰지 않는다(확인 필요: 제어 센터 토글 때 기록의 adapter 줄).
    기록: `adapter PoweredOff`, 대상의 `Disconnected(Failed:ADAPTER_UNAVAILABLE)`(그 앞 `Recovering(LINK_FAILED)` 는 있어도 됨),
    `scan Idle(Failed:SCAN_STOPPED_BY_ADAPTER)`.
-2. 꺼진 채로 "probe.value 읽기", "연결". 기록: connect 는 `실패 ADAPTER_UNAVAILABLE`, read 는 세션이 이미 끊겨 `실패 NOT_CONNECTED`
-   (라이브러리 GATT 진입 검사, failure-codes.json), 그 뒤 연결 상태 줄이 새로 생기지 않는다.
+2. 꺼진 채로 "probe.value 읽기", "연결". 기록: connect 와 read 모두 `실패 ADAPTER_UNAVAILABLE`(read 는 GATT 진입 검사가
+   어댑터를 세션보다 먼저 본다, contract/states.md §5 명령 진입 검사 순서. 0.2.1 까지는 `NOT_CONNECTED`), 그 뒤 연결 상태 줄이 새로 생기지 않는다.
 3. 블루투스를 켠다. 기록: `Connecting → DiscoveringServices → Configuring → Ready` 가 **한 번**, `activeSubscriptions {probe.value}`,
    알림 재개. 세션 탭 Ready 횟수가 1 늘었는지 본다.
 4. 해제 → autoReconnect 끔 → 연결 → 1–3 반복. 켠 뒤 연결 상태 줄이 생기지 않아야 한다.

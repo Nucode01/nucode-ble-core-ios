@@ -142,7 +142,7 @@ final class DetectorTests: XCTestCase {
 
     func testItem2PassAfterSettle() {
         var s = Script()
-        s.command(.read, adapter: .poweredOff, failure: "NOT_CONNECTED")
+        s.command(.read, adapter: .poweredOff, failure: "ADAPTER_UNAVAILABLE")
         s.command(.connect, adapter: .poweredOff, failure: "ADAPTER_UNAVAILABLE")
         let ctx = context(offFinal, adapter: .poweredOff)
         XCTAssertTrue(s.judge(2, ctx).isPending, "3초 동안 상태 변화가 없는지 본다")
@@ -155,6 +155,15 @@ final class DetectorTests: XCTestCase {
         var s = Script()
         s.command(.connect, adapter: .poweredOff, failure: "NOT_READY")
         XCTAssertEqual(s.judge(2, context(offFinal, adapter: .poweredOff)).failReason, "connect 가 NOT_READY(기대 ADAPTER_UNAVAILABLE)")
+    }
+
+    func testItem2FailsOnOldReadCode() {
+        // 0.2.2 부터 read 도 어댑터를 세션보다 먼저 본다(states.md §5 명령 진입 검사 순서). NOT_CONNECTED·NOT_READY 는 실패다
+        for code in ["NOT_CONNECTED", "NOT_READY"] {
+            var s = Script()
+            s.command(.read, adapter: .poweredOff, failure: code)
+            XCTAssertEqual(s.judge(2, context(offFinal, adapter: .poweredOff)).failReason, "read 가 \(code)(기대 ADAPTER_UNAVAILABLE)")
+        }
     }
 
     func testItem2FailsWhenLinkChangesAfterCommand() {
