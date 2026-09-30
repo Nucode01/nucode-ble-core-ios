@@ -2,6 +2,8 @@ import Foundation
 
 /// 복원을 아는 유일한 코드(docs/v1/ios-design.md §9). `willRestoreState` 를 `didUpdateState` 보다 먼저, 동기로 처리한다.
 /// 연결 경로(`linkUp`)는 부르지 않는다: 받아둔 기기는 `poweredOn` 의 연결 경로가 쓴다.
+/// 미등록 기기의 연결 취소도 첫 `poweredOn` 까지 미룬다: 복원 콜백 때 manager 는 아직 `unknown` 이라 CoreBluetooth 가
+/// 명령을 무시하고(API MISUSE), 세션 없는 OS 연결이 남는다(iPhone XR 실측 2026-09-30).
 @BLECoreActor
 package final class RestoreTranslator {
     private let registrations: Registrations
@@ -10,6 +12,8 @@ package final class RestoreTranslator {
     private let central: () -> (any CentralPort)?
     /// 포트의 delegate 는 약한 참조라 여기서 붙든다
     private var relays: [PeripheralID: RestoredPeripheralRelay] = [:]
+    /// 첫 `poweredOn` 에 끊을 미등록 복원 기기. 다른 확정 상태(꺼짐·권한 없음·미지원)가 먼저 오면 명령 없이 버린다
+    private var pendingCancels: [any PeripheralPort] = []
 
     package init(
         registrations: Registrations,
@@ -31,11 +35,33 @@ package final class RestoreTranslator {
                 let relay = RestoredPeripheralRelay(id: peripheral.id, registrations: registrations)
                 relays[peripheral.id] = relay
                 peripheral.delegate = relay
-            } else if let central = central() {
+            } else if let central = central(), central.state == .poweredOn {
                 central.cancelPeripheralConnection(peripheral)
+            } else {
+                pendingCancels.append(peripheral)
             }
         }
         scanner.restore(registered: registrations.scan)
+    }
+
+    /// 상태 콜백마다 부른다. `poweredOn` 이면 미룬 취소를 낸다. 그사이 앱이 같은 기기의 세션을 만들었으면 그 세션이
+    /// 주인이라 끊지 않는다. 꺼짐·권한 없음·미지원이면 OS 가 이미 링크를 놓았거나 명령이 안 되므로 버린다.
+    /// `unknown`·`resetting` 은 계속 기다린다.
+    package func centralStateChanged(_ state: CentralPortState) {
+        guard !pendingCancels.isEmpty else { return }
+        switch state {
+        case .poweredOn:
+            let pending = pendingCancels
+            pendingCancels = []
+            guard let central = central() else { return }
+            for peripheral in pending where registry.sessions[peripheral.id] == nil {
+                central.cancelPeripheralConnection(peripheral)
+            }
+        case .poweredOff, .unauthorized, .unsupported:
+            pendingCancels = []
+        case .unknown, .resetting:
+            break
+        }
     }
 }
 

@@ -172,6 +172,7 @@ package final class BLERuntime: CentralPortDelegate {
     // MARK: CentralPortDelegate
 
     package func centralDidUpdateState(_ central: any CentralPort) {
+        restoreTranslator.centralStateChanged(central.state)
         adapter.refresh()
         scanner.adapterChanged(adapter.current)
         startRegisteredIfReady()

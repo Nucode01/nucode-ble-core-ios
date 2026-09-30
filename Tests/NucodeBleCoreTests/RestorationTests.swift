@@ -98,6 +98,91 @@ final class RestorationTests: XCTestCase {
         client.close()
     }
 
+    // MARK: 복원 콜백은 poweredOn 전에 온다 (CoreBluetooth 는 그 사이 명령을 무시한다)
+
+    /// 앱이 새로 떴을 때의 모양: OS 가 링크를 쥔 채 새 manager 는 `unknown` 으로 시작하고, 복원 콜백이 상태 콜백보다 먼저 온다
+    private func relaunchedWithLink() async throws -> FakeCentral {
+        let central = try makeCentral()
+        let linked = await linkedPeripheral(central)
+        XCTAssertTrue(linked)
+        central.relaunchProcess()
+        return central
+    }
+
+    func testUnregisteredRestoredPeripheralIsCancelledOncePoweredOn() async throws {
+        let central = try await relaunchedWithLink()
+        let client = Support.makeClient { central }
+        client.start()
+        central.delegate?.central(central, willRestoreState: [central.peripheral])
+        XCTAssertEqual(central.misuses, [], "poweredOn 전에는 명령을 내지 않는다(CB 가 무시한다)")
+        XCTAssertEqual(central.peripheral.connectionState, .connected)
+
+        central.setAdapter(.poweredOn)
+        let dropped = await waitUntil { central.peripheral.connectionState == .disconnected }
+        XCTAssertTrue(dropped, "첫 poweredOn 에서 미등록 복원 기기를 끊는다")
+        XCTAssertEqual(central.commands.filter { $0 == "cancelPeripheralConnection" }.count, 1)
+        XCTAssertEqual(central.misuses, [])
+        XCTAssertTrue(client.runtime.registry.sessions.isEmpty)
+        client.close()
+    }
+
+    func testPendingRestoredCancelIsDroppedWhenFirstStateIsNotPoweredOn() async throws {
+        for first in [CentralPortState.poweredOff, .unauthorized] {
+            let central = try await relaunchedWithLink()
+            let client = Support.makeClient { central }
+            client.start()
+            central.delegate?.central(central, willRestoreState: [central.peripheral])
+            central.setAdapter(first, authorization: first == .unauthorized ? .denied : .allowedAlways)
+            // 상태 콜백은 나중에 나가고 그때의 상태를 읽으므로, 첫 상태가 core 에 닿은 뒤에 켠다
+            let seen = await waitUntil { client.runtime.adapter.current != .unknown }
+            XCTAssertTrue(seen)
+            central.setAdapter(.poweredOn)
+            let on = await waitUntil { client.runtime.adapter.current == .ready }
+            XCTAssertTrue(on)
+            // 그사이 앱이 같은 기기에 다시 붙어도 남은 취소가 끊지 않는다
+            let session = try client.runtime.session(for: id)
+            try await client.runtime.connect(session, options: ConnectOptions())
+            let ready = await waitUntil { isReady(session) }
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertTrue(ready && isReady(session), "\(first): 남은 취소가 새 연결을 끊었다")
+            XCTAssertEqual(central.misuses, [], "\(first)")
+            XCTAssertFalse(central.commands.contains("cancelPeripheralConnection"), "\(first): 명령 없이 버린다")
+            client.close()
+        }
+    }
+
+    func testRestoredPeripheralClaimedByAppConnectBeforePoweredOnIsNotCancelled() async throws {
+        let central = try await relaunchedWithLink()
+        let client = Support.makeClient { central }
+        client.start()
+        central.delegate?.central(central, willRestoreState: [central.peripheral])
+        let session = try client.runtime.session(for: id)
+        let connecting = Task { @BLECoreActor in try await client.runtime.connect(session, options: ConnectOptions()) }
+        try await Task.sleep(for: .milliseconds(20))
+        central.setAdapter(.poweredOn)
+        try await connecting.value
+        let ready = await waitUntil { isReady(session) }
+        XCTAssertTrue(ready)
+        XCTAssertFalse(central.commands.contains("cancelPeripheralConnection"), "앱이 세션을 만든 기기는 그 세션이 주인이다")
+        XCTAssertEqual(central.misuses, [])
+        client.close()
+    }
+
+    func testRegisteredRestoredLinkIsNotCancelledAcrossPoweredOn() async throws {
+        let central = try await relaunchedWithLink()
+        let client = Support.makeClient { central }
+        client.register(id, options: ConnectOptions(), subscribe: [])
+        client.start()
+        central.delegate?.central(central, willRestoreState: [central.peripheral])
+        central.setAdapter(.poweredOn)
+        let session = client.runtime.registry.session(for: id)
+        let ready = await waitUntil { isReady(session) }
+        XCTAssertTrue(ready)
+        XCTAssertFalse(central.commands.contains("cancelPeripheralConnection"), "등록 기기는 끊지 않는다")
+        XCTAssertEqual(central.misuses, [])
+        client.close()
+    }
+
     // MARK: 알림
 
     func testNotificationRightAfterRestoreGoesToHandler() async throws {

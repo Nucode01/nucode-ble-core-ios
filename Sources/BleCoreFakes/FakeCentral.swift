@@ -2,7 +2,9 @@ import Foundation
 import NucodeBleCore
 
 /// contract/README §sim 의 가짜 central. 기기는 하나(`peripheral`)다.
-/// 어댑터는 `Ready`(poweredOn)·권한 허용으로 시작하고 `setAdapter` 로만 바뀐다.
+/// 어댑터는 `Ready`(poweredOn)·권한 허용으로 시작하고 `setAdapter`·`relaunchProcess` 로만 바뀐다.
+/// CoreBluetooth 처럼 poweredOn 이 아닐 때 온 명령(스캔·스캔 멈춤·connect·cancel)은 무시하고 `misuses` 에 남긴다
+/// (CB 는 `API MISUSE: can only accept this command while in the powered on state` 로그만 남긴다).
 /// 콜백은 모두 core 큐에서 나간다.
 @BLECoreActor
 package final class FakeCentral: CentralPort {
@@ -16,6 +18,10 @@ package final class FakeCentral: CentralPort {
     /// 마지막 `scanForPeripherals` 의 `allowDuplicates`(가짜 기기는 스캔 중 100ms 마다 결과를 낸다)
     package private(set) var scanAllowsDuplicates = false
     package var isScanning: Bool { scanning }
+    /// poweredOn 이 아닐 때 와서 무시된 명령 이름(`connect`, `cancelPeripheralConnection` …), 온 순서대로
+    package private(set) var misuses: [String] = []
+    /// 받아들인 명령 이름(`scanForPeripherals`, `stopScan`, `connect`, `cancelPeripheralConnection`), 온 순서대로
+    package private(set) var commands: [String] = []
 
     private let clock: any BLEClock
     private let timing: FakeTiming
@@ -45,7 +51,7 @@ package final class FakeCentral: CentralPort {
     // MARK: CentralPort
 
     package func scanForPeripherals(services: [BLEUUID]?, allowDuplicates: Bool) {
-        guard state == .poweredOn else { return }
+        guard accepts("scanForPeripherals") else { return }
         scanning = true
         scanGeneration += 1
         scanServices = services
@@ -54,8 +60,8 @@ package final class FakeCentral: CentralPort {
     }
 
     package func stopScan() {
-        scanning = false
-        scanGeneration += 1
+        guard accepts("stopScan") else { return }
+        haltScan()
     }
 
     package func retrievePeripherals(withIdentifiers identifiers: [PeripheralID]) -> [any PeripheralPort] {
@@ -71,13 +77,28 @@ package final class FakeCentral: CentralPort {
     }
 
     package func connect(_ peripheral: any PeripheralPort) {
-        guard peripheral === self.peripheral else { return }
+        guard accepts("connect"), peripheral === self.peripheral else { return }
         self.peripheral.connectRequested()
     }
 
     package func cancelPeripheralConnection(_ peripheral: any PeripheralPort) {
-        guard peripheral === self.peripheral else { return }
+        guard accepts("cancelPeripheralConnection"), peripheral === self.peripheral else { return }
         self.peripheral.cancelRequested()
+    }
+
+    /// CoreBluetooth 처럼 poweredOn 일 때만 명령을 받는다. 아니면 무시하고 기록한다
+    private func accepts(_ command: String) -> Bool {
+        guard state == .poweredOn else {
+            misuses.append(command)
+            return false
+        }
+        commands.append(command)
+        return true
+    }
+
+    private func haltScan() {
+        scanning = false
+        scanGeneration += 1
     }
 
     // MARK: 어댑터
@@ -89,7 +110,7 @@ package final class FakeCentral: CentralPort {
     package func setAdapter(_ newState: CentralPortState, authorization newAuthorization: PortAuthorization = .allowedAlways) {
         state = newState
         authorization = newAuthorization
-        if newState != .poweredOn { stopScan() }
+        if newState != .poweredOn { haltScan() }
         fakeEmit(self) { central in
             if central.state != .poweredOn {
                 central.peripheral.failPendingConnect(error: PortError(domain: "CBInternalErrorDomain", code: 32, message: "Local device is powered off."))
@@ -101,6 +122,13 @@ package final class FakeCentral: CentralPort {
                 central.peripheral.dropLink(error: PortError(domain: "FakeCentral", code: 6, message: "adapter left poweredOn"))
             }
         }
+    }
+
+    /// 앱 프로세스가 새로 떠 manager 를 새로 만든 순간을 흉내 낸다(복원 재실행). 상태는 콜백 없이 `unknown` 이 되고
+    /// OS 가 쥔 링크·대기 connect 는 그대로다. 실제처럼 `willRestoreState` 를 보낸 뒤 `setAdapter(.poweredOn)` 을 부른다.
+    package func relaunchProcess() {
+        state = .unknown
+        haltScan()
     }
 
     // MARK: 콜백 (FakePeripheral 이 부른다. 이미 core 큐 위)
