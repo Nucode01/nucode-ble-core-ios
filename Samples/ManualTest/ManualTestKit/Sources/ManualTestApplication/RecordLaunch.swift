@@ -7,11 +7,15 @@ public struct LaunchContext: Sendable {
     public let appState: String
     public let protectedDataAvailable: Bool
     public let hasBluetoothCentralsKey: Bool
-    public init(launchedInBackground: Bool, appState: String, protectedDataAvailable: Bool, hasBluetoothCentralsKey: Bool) {
+    /// `ProcessInfo.systemUptime`(초). 재부팅 직후인지 가른다
+    public let systemUptime: TimeInterval?
+    public init(launchedInBackground: Bool, appState: String, protectedDataAvailable: Bool, hasBluetoothCentralsKey: Bool,
+                systemUptime: TimeInterval? = nil) {
         self.launchedInBackground = launchedInBackground
         self.appState = appState
         self.protectedDataAvailable = protectedDataAvailable
         self.hasBluetoothCentralsKey = hasBluetoothCentralsKey
+        self.systemUptime = systemUptime
     }
 }
 
@@ -47,7 +51,9 @@ public struct RecordLaunch {
             appState: context.appState,
             protectedDataAvailable: context.protectedDataAvailable,
             hasBluetoothCentralsKey: context.hasBluetoothCentralsKey,
-            registration: registration
+            registration: registration,
+            systemUptime: context.systemUptime,
+            adapter: state.adapter
         )))
         gateway.start(registration: registration)
         return Task { [gateway, state, settleDelay] in

@@ -42,8 +42,27 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.ble.ManualTest
         TARGETED_DEVICE_FAMILY: "1"
+  # 점검표 자동 실행(auto/run-checklist.sh). 설치된 앱에 붙어 조작만 한다(판정은 앱의 자동 판정)
+  ManualTestUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: ManualTest
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.ble.ManualTestUITests
+        TEST_TARGET_NAME: ManualTest
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
 schemes:
   ManualTest:
     build:
       targets:
         ManualTest: all
+        ManualTestUITests: [test]
+    test:
+      targets:
+        - ManualTestUITests

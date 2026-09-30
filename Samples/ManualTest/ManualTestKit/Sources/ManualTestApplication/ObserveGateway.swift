@@ -22,8 +22,9 @@ public struct ObserveGateway {
     public func handle(_ event: GatewayEvent) {
         switch event {
         case let .adapter(status):
+            let previous = state.adapter
             state.set(adapter: status)
-            state.record(.adapterChanged(status))
+            state.record(.adapterChanged(status, previous: previous))
         case let .scan(status):
             state.set(scan: status)
             state.record(.scanChanged(status))
@@ -35,7 +36,7 @@ public struct ObserveGateway {
             }
         case let .link(id, link):
             state.mutateSession { $0.apply(link: link, of: id) }
-            state.record(.linkChanged(id, link))
+            state.record(.linkChanged(id, link, previous: state.swapLink(link, of: id)))
         case let .services(id, count):
             state.record(.servicesDiscovered(id, count: count))
         case let .activeSubscriptions(id, set):

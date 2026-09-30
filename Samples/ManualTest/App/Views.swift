@@ -41,12 +41,14 @@ struct DeviceView: View {
                 }
                 HStack {
                     Button("스캔 시작") { model.startScan() }
+                        .accessibilityIdentifier("device.scanStart")
                     Spacer()
                     Button("중지") { model.stopScan() }
+                        .accessibilityIdentifier("device.scanStop")
                 }
                 .buttonStyle(.borderless)
-                StateRow(title: "스캔 상태", value: model.scan.label)
-                StateRow(title: "어댑터", value: model.adapter.label)
+                StateRow(title: "스캔 상태", value: model.scan.label, id: "device.scan")
+                StateRow(title: "어댑터", value: model.adapter.label, id: "device.adapter")
             }
             Section("발견한 기기 (\(model.devices.count))") {
                 ForEach(model.devices, id: \.id) { device in
@@ -62,6 +64,8 @@ struct DeviceView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    .accessibilityIdentifier("device.row.\(device.name ?? "")")
+                    .accessibilityValue(device.id == model.session.deviceId ? "selected" : "")
                 }
             }
         }
@@ -78,15 +82,15 @@ struct SessionView: View {
     var body: some View {
         Form {
             Section("상태") {
-                StateRow(title: "어댑터", value: model.adapter.label)
-                StateRow(title: "스캔", value: model.scan.label)
-                StateRow(title: "대상 기기", value: model.session.deviceId?.rawValue ?? "선택 안 함")
-                StateRow(title: "연결", value: model.session.link.label)
-                StateRow(title: "Ready 횟수(이번 실행)", value: "\(model.session.readyCount)")
-                StateRow(title: "activeSubscriptions", value: names(model.session.activeSubscriptions))
+                StateRow(title: "어댑터", value: model.adapter.label, id: "session.adapter")
+                StateRow(title: "스캔", value: model.scan.label, id: "session.scan")
+                StateRow(title: "대상 기기", value: model.session.deviceId?.rawValue ?? "선택 안 함", id: "session.device")
+                StateRow(title: "연결", value: model.session.link.label, id: "session.link")
+                StateRow(title: "Ready 횟수(이번 실행)", value: "\(model.session.readyCount)", id: "session.readyCount")
+                StateRow(title: "activeSubscriptions", value: names(model.session.activeSubscriptions), id: "session.subscriptions")
             }
             Section("마지막 알림") {
-                StateRow(title: "받은 수", value: "\(model.session.notifications.count)")
+                StateRow(title: "받은 수", value: "\(model.session.notifications.count)", id: "session.notificationCount")
                 StateRow(title: "시각", value: model.session.notifications.lastAt.map { LogTime.clock($0) } ?? "-")
                 StateRow(title: "값", value: model.session.notifications.lastValue?.hex ?? "-")
             }
@@ -95,10 +99,13 @@ struct SessionView: View {
                     get: { model.session.autoReconnect },
                     set: { model.setAutoReconnect($0) }
                 ))
+                .accessibilityIdentifier("session.autoReconnect")
                 HStack {
                     Button("연결") { model.connect() }
+                        .accessibilityIdentifier("session.connect")
                     Spacer()
                     Button("해제") { model.disconnect() }
+                        .accessibilityIdentifier("session.disconnect")
                 }
                 .buttonStyle(.borderless)
             } header: {
@@ -109,11 +116,13 @@ struct SessionView: View {
             Section("GATT") {
                 HStack {
                     Button("probe.value 구독") { model.subscribe() }
+                        .accessibilityIdentifier("session.subscribe")
                     Spacer()
                     Button("구독 해제") { model.unsubscribe() }
                 }
                 .buttonStyle(.borderless)
                 Button("probe.value 읽기") { model.read() }
+                    .accessibilityIdentifier("session.read")
                 HStack {
                     TextField("NUS rx 로 보낼 문자열", text: $model.nusText)
                         .textInputAutocapitalization(.never)
@@ -122,12 +131,14 @@ struct SessionView: View {
                 }
             }
             Section {
-                StateRow(title: "이번 실행", value: describe(model.activeRegistration))
-                StateRow(title: "저장됨(다음 실행)", value: describe(model.registration))
+                StateRow(title: "이번 실행", value: describe(model.activeRegistration), id: "session.activeRegistration")
+                StateRow(title: "저장됨(다음 실행)", value: describe(model.registration), id: "session.savedRegistration")
                 HStack {
                     Button("현재 대상으로 저장") { model.saveRegistration() }
+                        .accessibilityIdentifier("session.saveRegistration")
                     Spacer()
                     Button("등록 해제", role: .destructive) { model.clearRegistration() }
+                        .accessibilityIdentifier("session.clearRegistration")
                 }
                 .buttonStyle(.borderless)
             } header: {
@@ -222,21 +233,7 @@ struct ChecklistView: View {
     var body: some View {
         List {
             ForEach(Checklist.items) { item in
-                let result = model.checklist.result(for: item.id)
-                NavigationLink {
-                    ChecklistItemView(model: model, item: item)
-                } label: {
-                    HStack(alignment: .top) {
-                        Text(result.verdict.label)
-                            .font(.caption.bold())
-                            .frame(width: 52, alignment: .leading)
-                            .foregroundStyle(color(result.verdict))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(item.id). \(item.title)")
-                            if !result.note.isEmpty { Text(result.note).font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }
-                }
+                ChecklistRow(model: model, item: item)
             }
             if let error = model.storeError {
                 Text(error).foregroundStyle(.red).font(.caption)
@@ -252,7 +249,9 @@ struct ChecklistView: View {
                     UIPasteboard.general.string = model.report()
                     copied = true
                 }
+                .accessibilityIdentifier("checklist.copy")
                 ShareLink(item: model.report()) { Image(systemName: "square.and.arrow.up") }
+                    .accessibilityIdentifier("checklist.export")
             }
         }
         .confirmationDialog("점검 결과를 모두 지웁니다", isPresented: $confirmReset) {
@@ -260,13 +259,55 @@ struct ChecklistView: View {
         }
         .onAppear { copied = false }
     }
+}
 
-    private func color(_ verdict: Verdict) -> Color {
-        switch verdict {
-        case .pending: .secondary
+/// 항목 하나: 시작 · 상태 · 할 일 · 자동 판정 내용 · 근거(펼침) · 수동 판정
+struct ChecklistRow: View {
+    let model: ChecklistModel
+    let item: ChecklistItem
+    @State private var showEvidence = false
+
+    var body: some View {
+        let result = model.checklist.result(for: item.id)
+        Section {
+            HStack {
+                Text(model.status(result))
+                    .font(.callout.bold())
+                    .foregroundStyle(color(result))
+                    .accessibilityIdentifier("checklist.status.\(item.id)")
+                    .accessibilityValue(result.verdict.rawValue)
+                Spacer()
+                Button(result.auto == nil ? "시작" : "다시 시작") { model.arm(item.id) }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("checklist.arm.\(item.id)")
+            }
+            Text(item.instruction).font(.caption)
+            if let auto = result.auto {
+                Text(auto.outcome.detail).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("checklist.detail.\(item.id)")
+                if !auto.evidence.isEmpty {
+                    DisclosureGroup("근거 \(auto.evidence.count)줄", isExpanded: $showEvidence) {
+                        ForEach(Array(auto.evidence.enumerated()), id: \.offset) { _, line in
+                            Text(line).font(.caption2.monospaced())
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+            if !result.note.isEmpty { Text("메모: \(result.note)").font(.caption).foregroundStyle(.secondary) }
+            NavigationLink("수동 판정·메모") { ChecklistItemView(model: model, item: item) }
+                .font(.caption)
+        } header: {
+            Text("\(item.id). \(item.title)")
+        }
+    }
+
+    private func color(_ result: ChecklistResult) -> Color {
+        switch result.verdict {
+        case .pending: result.isJudging ? .blue : .secondary
         case .pass: .green
         case .fail: .red
-        case .skip: .orange
+        case .skip, .needsHuman: .orange
         }
     }
 }
@@ -279,19 +320,30 @@ struct ChecklistItemView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        let result = model.checklist.result(for: item.id)
         Form {
             Section("기대 결과") { Text(item.expectation) }
-            Section("판정") {
+            if let auto = result.auto {
+                Section("자동 판정") {
+                    Text("\(auto.outcome.label): \(auto.outcome.detail)")
+                    Text("시작 \(LogTime.full(auto.armedAt))").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section {
                 Picker("판정", selection: $verdict) {
                     ForEach(Verdict.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+            } header: {
+                Text("판정")
+            } footer: {
+                Text("저장하면 수동 판정이 되고 자동 판정은 멈춘다(근거는 남는다). 다시 자동으로 하려면 \"다시 시작\".")
             }
             Section("메모") {
                 TextEditor(text: $note).frame(minHeight: 120)
             }
-            if let at = model.checklist.result(for: item.id).updatedAt {
-                Section { Text("마지막 저장 \(LogTime.full(at))").font(.caption).foregroundStyle(.secondary) }
+            if let at = result.updatedAt {
+                Section { Text("마지막 저장 \(LogTime.full(at)) · \(result.source.label)").font(.caption).foregroundStyle(.secondary) }
             }
         }
         .navigationTitle("\(item.id). \(item.title)")
@@ -313,12 +365,15 @@ struct ChecklistItemView: View {
 struct StateRow: View {
     let title: String
     let value: String
+    /// UI 자동화(ManualTestUITests)가 값을 읽는 식별자
+    var id: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
             Spacer()
             Text(value).font(.callout.monospaced()).multilineTextAlignment(.trailing).foregroundStyle(.secondary)
+                .accessibilityIdentifier(id ?? "")
         }
     }
 }

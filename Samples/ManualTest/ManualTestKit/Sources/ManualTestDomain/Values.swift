@@ -26,7 +26,7 @@ public struct DiscoveredDevice: Hashable, Sendable {
 }
 
 /// 라이브러리 `AdapterState` 의 도메인 거울
-public enum AdapterStatus: Hashable, Sendable {
+public enum AdapterStatus: Hashable, Codable, Sendable {
     case unknown
     case unsupported
     case unauthorized(canRequest: Bool)
@@ -47,7 +47,7 @@ public enum AdapterStatus: Hashable, Sendable {
 }
 
 /// `Idle` · `Scanning` · `Idle(Failed:<코드>)` (contract/states.md §7)
-public enum ScanStatus: Hashable, Sendable {
+public enum ScanStatus: Hashable, Codable, Sendable {
     case idle
     case scanning
     case failed(code: String)

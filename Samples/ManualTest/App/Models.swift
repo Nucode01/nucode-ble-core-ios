@@ -87,9 +87,12 @@ final class ConsoleModel {
 final class ChecklistModel {
     private(set) var checklist: Checklist
     private(set) var storeError: String?
+    /// 남은 시간 표시용. 1초마다 오른다
+    private(set) var now: Date
     @ObservationIgnored private let board: ChecklistBoard
     @ObservationIgnored private let state: ConsoleState
     @ObservationIgnored private let clock: any Clock
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
     init(board: ChecklistBoard, state: ConsoleState, clock: any Clock) {
         self.board = board
@@ -97,15 +100,45 @@ final class ChecklistModel {
         self.clock = clock
         checklist = board.checklist
         storeError = board.storeError
+        now = clock.now()
         board.onChange = { [weak self] in
             guard let self else { return }
             checklist = self.board.checklist
             storeError = self.board.storeError
         }
+        // 기한 판정용 1초 틱. 사건이 없어도 기한이 지나면 실패로 바꾼다
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                now = self.clock.now()
+                evaluate()
+            }
+        }
+    }
+
+    func evaluate() { EvaluateChecklist(board: board, state: state)() }
+
+    /// "시작"
+    func arm(_ id: Int) {
+        try? ArmChecklistItem(board: board, state: state)(id)
+        now = clock.now()
     }
 
     func mark(_ id: Int, verdict: Verdict, note: String) {
         try? MarkChecklistItem(board: board)(id, verdict: verdict, note: note)
+    }
+
+    /// 대기 · 진행 중(남은 시간) · 통과 · 실패 · 사람 확인. 사람이 정한 것은 (수동)
+    func status(_ result: ChecklistResult) -> String {
+        if result.source == .manual {
+            return result.verdict == .pending && result.updatedAt == nil ? "대기" : "\(result.verdict.label) (수동)"
+        }
+        guard let auto = result.auto else { return "대기" }
+        if let deadline = auto.outcome.deadline {
+            return "진행 중(남은 \(max(0, Int(deadline.timeIntervalSince(now).rounded(.up))))초)"
+        }
+        return auto.outcome.isFinal ? "\(auto.outcome.label) (자동)" : "진행 중"
     }
 
     func resetAll() { MarkChecklistItem(board: board).resetAll() }

@@ -10,16 +10,17 @@ struct CommandRecorder {
     /// 성공이면 값, 실패면 기록 뒤 nil
     @discardableResult
     func run<T>(_ command: Command, detail: (T) -> String, _ body: () async throws -> T) async -> T? {
+        let context = state.commandContext()
         do {
             let value = try await body()
-            state.record(.commandSucceeded(command, detail: detail(value)))
+            state.record(.commandSucceeded(command, detail: detail(value), context: context))
             return value
         } catch let error as GatewayError {
-            state.record(.commandFailed(command, code: error.code, message: error.message))
+            state.record(.commandFailed(command, code: error.code, message: error.message, context: context))
         } catch let error as DomainError {
-            state.record(.commandFailed(command, code: error.code, message: "\(error)"))
+            state.record(.commandFailed(command, code: error.code, message: "\(error)", context: context))
         } catch {
-            state.record(.commandFailed(command, code: "UNEXPECTED", message: "\(error)"))
+            state.record(.commandFailed(command, code: "UNEXPECTED", message: "\(error)", context: context))
         }
         return nil
     }

@@ -17,6 +17,10 @@ public final class ConsoleState {
     public private(set) var storeError: String?
     /// 상태가 바뀔 때마다 부른다(표현 계층이 다시 그린다)
     public var onChange: (@MainActor () -> Void)?
+    /// 기록 줄이 늘 때마다 부른다(점검표 자동 판정)
+    public var onEntry: (@MainActor (LogEntry) -> Void)?
+    /// 이 실행에서 기기별 마지막 연결 상태. 기록 줄에 직전 상태를 싣는다
+    private var lastLinks: [DeviceId: LinkState] = [:]
 
     let logStore: any EventLogStore
     let clock: any Clock
@@ -36,6 +40,18 @@ public final class ConsoleState {
         let entry = log.append(event, at: clock.now())
         do { try logStore.append(entry) } catch { storeError = "기록 쓰기 실패(seq \(entry.seq)): \(error)" }
         onChange?()
+        onEntry?(entry)
+    }
+
+    /// 직전 상태를 돌려주고 새 상태로 바꾼다
+    func swapLink(_ state: LinkState, of id: DeviceId) -> LinkState? {
+        defer { lastLinks[id] = state }
+        return lastLinks[id]
+    }
+
+    /// 명령을 부르는 순간의 상태
+    func commandContext() -> CommandContext {
+        CommandContext(device: session.deviceId, startedAt: clock.now(), adapter: adapter, link: session.link)
     }
 
     func set(adapter: AdapterStatus) { self.adapter = adapter }

@@ -78,3 +78,20 @@ final class SteppingClock: Clock {
     private let t = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 1_800_000_000))
     func now() -> Date { t.withLock { $0 = $0.addingTimeInterval(1); return $0 } }
 }
+
+/// 시험이 옮기는 시계
+final class ManualClock: Clock {
+    private let t: OSAllocatedUnfairLock<Date>
+    init(_ start: Date = Date(timeIntervalSince1970: 1_800_000_000)) { t = OSAllocatedUnfairLock(initialState: start) }
+    func now() -> Date { t.withLock { $0 } }
+    func advance(_ seconds: TimeInterval) { t.withLock { $0 = $0.addingTimeInterval(seconds) } }
+}
+
+final class MemoryChecklistStore: ChecklistStore {
+    private let value = OSAllocatedUnfairLock(initialState: (results: [Int: ChecklistResult](), saves: 0))
+    var saves: Int { value.withLock { $0.saves } }
+    func load() throws -> [Int: ChecklistResult] { value.withLock { $0.results } }
+    func save(_ results: [Int: ChecklistResult]) throws {
+        value.withLock { $0 = (results, $0.saves + 1) }
+    }
+}

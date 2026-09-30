@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             launchedInBackground: application.applicationState == .background,
             appState: Self.label(application.applicationState),
             protectedDataAvailable: application.isProtectedDataAvailable,
-            hasBluetoothCentralsKey: launchOptions?[.bluetoothCentrals] != nil
+            hasBluetoothCentralsKey: launchOptions?[.bluetoothCentrals] != nil,
+            systemUptime: ProcessInfo.processInfo.systemUptime
         ))
         return true
     }
@@ -63,6 +64,8 @@ final class AppContainer {
         state = ConsoleState(logStore: FileEventLogStore(), clock: clock)
         console = ConsoleModel(state: state, gateway: gateway, registrationStore: registrationStore)
         checklist = ChecklistModel(board: ChecklistBoard(store: FileChecklistStore(), clock: clock), state: state, clock: clock)
+        // 기록 줄마다 판정 중인 항목을 다시 본다. 실행 기록 줄도 여기로 와서 8·9 는 재실행 뒤 판정된다
+        state.onEntry = { [checklist] _ in checklist.evaluate() }
     }
 
     func launch(_ context: LaunchContext) {
