@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (0.2.2)
+
+공개 API 는 0.2.0 과 같다(`swift package diagnose-api-breaking-changes 0.2.0`). 실패 코드 값의 뜻이 바뀐다.
+
+### Breaking changes (코드 뜻)
+
+- read·write·subscribe 의 진입 검사를 Android 와 같은 순서로 맞췄다(contract/states.md §5 명령 진입 검사 순서):
+  닫힘 `CLIENT_CLOSED` → 어댑터(`ADAPTER_UNAVAILABLE`·`PERMISSION_DENIED`·`BLE_UNSUPPORTED`, `.unknown` 이면 connect 와 같이 최대 2000ms 판정 대기)
+  → 세션이 Ready 아님 `NOT_READY` → 참조 없음 `CHARACTERISTIC_NOT_FOUND`.
+  - 연결 전·`Disconnected`·`Disconnecting`·`Recovering`, 링크 유실 뒤 원인 확정 창(1000ms, 공개 상태는 아직 `Ready`)에서 이전에는
+    `NOT_CONNECTED` 였고 이제 `NOT_READY` 다.
+  - 블루투스가 꺼진 뒤의 명령은 이전에는 `NOT_CONNECTED` 였고 이제 `ADAPTER_UNAVAILABLE` 이다.
+  - `NOT_CONNECTED` 로 분기하던 앱은 `NOT_READY`(연결 문제)와 `ADAPTER_UNAVAILABLE`(환경)로 옮긴다. `NOT_CONNECTED` 는 진입 검사에서 더 나지 않는다.
+  - unsubscribe 는 그대로다(닫힘만 거절하고 의도를 먼저 지우는 best-effort).
+- `Samples/ManualTest` 점검 2 는 꺼진 채 read 도 `ADAPTER_UNAVAILABLE` 만 통과로 본다.
+
 ## 0.2.1 (2026-09-30)
 
 공개 API 는 0.2.0 과 같다(`swift package diagnose-api-breaking-changes 0.2.0`, `package` 선언 1건은 `api-breakage-allowlist.txt`).

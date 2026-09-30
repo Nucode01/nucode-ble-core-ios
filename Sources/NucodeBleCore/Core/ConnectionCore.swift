@@ -390,15 +390,29 @@ package enum ConnectionCore {
         s.closedPhase ?? s.phase
     }
 
-    /// GATT 명령 진입 검사(§5·§9). 통과하면 nil
-    package static func gattAdmission(_ s: State) -> FailureCode? {
-        if s.closed { return .clientClosed }
-        if s.pendingLoss != nil { return .notConnected }
-        switch s.phase {
-        case .ready: return nil
-        case .connecting, .discoveringServices, .configuring: return .notReady
-        case .disconnected, .disconnecting, .recovering: return .notConnected
+    /// read·write·subscribe 진입 판정(contract/states.md §5 명령 진입 검사 순서)
+    package enum GattAdmission {
+        /// 큐에 접수해도 된다(참조 확인은 세션이 한다)
+        case admit
+        /// 어댑터가 `unknown` 이다. 어댑터 판정(§6 대기)을 기다린 뒤 다시 묻는다
+        case awaitAdapterDecision
+        case reject(BLEFailure)
+    }
+
+    /// 순서: 닫힘(`CLIENT_CLOSED`) → 어댑터가 Ready 아님(§6 판정표) → 세션이 Ready 아님(단계 무관, 정착 창 포함 `NOT_READY`).
+    /// `NOT_CONNECTED` 는 여기서 내지 않는다(접수 뒤 시작 순간의 연결 없음에만 쓴다)
+    package static func gattAdmission(_ s: State, adapter: AdapterState) -> GattAdmission {
+        if s.closed { return .reject(BLEFailure(code: .clientClosed, message: "클라이언트가 닫혔다")) }
+        switch AdapterCore.immediateVerdict(adapter) {
+        case nil: return .awaitAdapterDecision
+        case .failed(let failure)?: return .reject(failure)
+        case .closed?: return .reject(BLEFailure(code: .clientClosed, message: "클라이언트가 닫혔다"))
+        case .admitted?, .cancelled?: break
         }
+        guard s.pendingLoss == nil, case .ready = s.phase else {
+            return .reject(BLEFailure(code: .notReady, message: "Ready 가 아니라 명령을 받을 수 없다"))
+        }
+        return .admit
     }
 
     /// GATT 콜백은 같은 세대의 Configuring·Ready 에서만 받는다

@@ -66,11 +66,41 @@ final class GattReadSubscribeTests: XCTestCase {
 
     // MARK: 진입 검사
 
+    /// 어댑터가 Unknown 이면 GATT 명령도 connect 와 같이 판정을 기다린다(states.md §6). `start()` 전에는 manager 가 없어 Unknown 이다
+    func testEntryWaitsForUnknownAdapter() async throws {
+        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
+        let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
+        let client = Support.makeClient { central }
+        let session = client.runtime.registry.session(for: id)
+        let value = ref(central, "probe.value")
+
+        // 풀리지 않으면 2000ms 뒤 ADAPTER_UNAVAILABLE
+        var result = await code { _ = try await session.read(value) }
+        XCTAssertEqual(result, "ADAPTER_UNAVAILABLE", "Unknown 이 풀리지 않음")
+
+        // 대기 중 호출자 취소: 접수 전이라 아무 일도 없고 취소로 끝난다
+        let cancelled = Task { @BLECoreActor in await self.code { _ = try await session.read(value) } }
+        await Support.sleep(realMilliseconds: 20)
+        cancelled.cancel()
+        let cancelledResult = await cancelled.value
+        XCTAssertEqual(cancelledResult, "other", "취소는 CancellationError")
+
+        // 대기 중 Ready 로 풀리면 세션 검사로 넘어가 NOT_READY(연결 전)
+        let waiting = Task { @BLECoreActor in await self.code { try await session.subscribe(value) } }
+        await Support.sleep(realMilliseconds: 20)
+        client.start()
+        result = await waiting.value
+        XCTAssertEqual(result, "NOT_READY", "Unknown → Ready 뒤 세션 검사")
+        XCTAssertTrue(session.snapshot().subscriptions.isEmpty)
+        client.close()
+    }
+
     func testEntryChecks() async throws {
         let (client, central, session) = try makeClient()
         let value = ref(central, "probe.value")
         var result = await code { _ = try await session.read(value) }
-        XCTAssertEqual(result, "NOT_CONNECTED")
+        XCTAssertEqual(result, "NOT_READY", "연결 전: 세션이 Ready 가 아니다(states.md §5 진입 검사 3)")
         _ = try await client.connect(id, options: ConnectOptions())
         result = await code { try await session.subscribe(value) }
         XCTAssertEqual(result, "NOT_READY")
@@ -242,7 +272,7 @@ final class GattReadSubscribeTests: XCTestCase {
         XCTAssertTrue(session.snapshot().subscriptions.isEmpty)
         XCTAssertTrue(session.activeSubscriptionsFlow.value.isEmpty)
         let after = await code { _ = try await session.read(value) }
-        XCTAssertEqual(after, "NOT_CONNECTED")
+        XCTAssertEqual(after, "NOT_READY")
         client.close()
     }
 

@@ -520,10 +520,10 @@ final class ConnectionCoreTests: XCTestCase {
 
     /// 창 동안의 명령·늦은 사건. S09~S13.
     func test_adapterSettleWindowCommands() {
-        // S09: 창 동안 링크가 없다. GATT 명령은 NOT_CONNECTED, 콜백은 받지 않는다. 공개 단계는 그대로
+        // S09: 창 동안 링크가 없다. 공개 단계가 Ready 여도 GATT 명령은 NOT_READY, 콜백은 받지 않는다. 공개 단계는 그대로
         var r = rig(manual, upTo: "Ready")
         r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
-        XCTAssertEqual(Core.gattAdmission(r.state)?.value, "NOT_CONNECTED", "S09 GATT 진입")
+        XCTAssertEqual(admission(r.state, .ready), "reject(NOT_READY)", "S09 GATT 진입")
         XCTAssertFalse(Core.isReady(r.state), "S09 isReady")
         XCTAssertFalse(Core.acceptsGattCallback(r.state, sameDevice: true, generation: 1), "S09 GATT 콜백")
         XCTAssertEqual(name(Core.snapshotPhase(r.state)), "Ready", "S09 스냅숏은 게시된 단계")
@@ -568,26 +568,84 @@ final class ConnectionCoreTests: XCTestCase {
 
     // MARK: GATT 진입·등록
 
+    private func admission(_ s: Core.State, _ adapter: AdapterState) -> String {
+        switch Core.gattAdmission(s, adapter: adapter) {
+        case .admit: "admit"
+        case .awaitAdapterDecision: "awaitAdapter"
+        case .reject(let failure): "reject(\(failure.code.value))"
+        }
+    }
+
     func test_gattAdmissionAndRegistration() {
-        // C22
-        let expectations: [(String, String?)] = [
-            ("Ready", nil),
-            ("Connecting", "NOT_READY"), ("DiscoveringServices", "NOT_READY"), ("Configuring", "NOT_READY"),
-            ("Disconnected", "NOT_CONNECTED"),
+        // C22: 진입 검사 순서(contract/states.md §5): 닫힘 → 어댑터(§6) → 세션 Ready 아님(단계 무관) → (참조는 세션)
+        func state(_ label: String) -> Core.State {
+            switch label {
+            case "Disconnecting":
+                var r = rig(manual, upTo: "Ready")
+                r.fire(.disconnect(hasLinkTarget: true, linked: true))
+                return r.state
+            case "Recovering":
+                var r = rig(auto, upTo: "Ready")
+                r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+                return r.state
+            case "Settle":
+                var r = rig(manual, upTo: "Ready")
+                r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+                return r.state
+            case "Failed":
+                var r = rig(manual, upTo: "Ready")
+                r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+                r.fire(.timerFired(kind: .adapterSettle, generation: 1))
+                return r.state
+            case "Closed":
+                var r = rig(manual, upTo: "Ready")
+                r.fire(.close)
+                return r.state
+            case "ClosedBeforeConnect":
+                var r = rig(manual, upTo: "Disconnected")
+                r.fire(.close)
+                return r.state
+            default:
+                return rig(manual, upTo: label).state
+            }
+        }
+        let sessions = ["Disconnected", "Connecting", "DiscoveringServices", "Configuring", "Ready",
+                        "Disconnecting", "Recovering", "Settle", "Failed"]
+        let adapters: [(String, AdapterState, String)] = [
+            ("ready", .ready, ""),
+            ("poweredOff", .poweredOff, "reject(ADAPTER_UNAVAILABLE)"),
+            ("resetting", .resetting, "reject(ADAPTER_UNAVAILABLE)"),
+            ("unauthorized", .unauthorized(canRequest: true), "reject(PERMISSION_DENIED)"),
+            ("unauthorizedNo", .unauthorized(canRequest: false), "reject(PERMISSION_DENIED)"),
+            ("unsupported", .unsupported, "reject(BLE_UNSUPPORTED)"),
+            ("unknown", .unknown, "awaitAdapter"),
         ]
-        for (phase, code) in expectations {
-            let r = rig(manual, upTo: phase)
-            XCTAssertEqual(Core.gattAdmission(r.state)?.value, code, "C22 \(phase)")
+        for session in sessions {
+            for (adapterName, adapter, adapterResult) in adapters {
+                // 어댑터가 Ready 가 아니면 세션 단계와 무관하게 어댑터 판정이 이긴다. Ready 면 세션이 Ready 일 때만 통과
+                let expected = adapterResult.isEmpty ? (session == "Ready" ? "admit" : "reject(NOT_READY)") : adapterResult
+                XCTAssertEqual(admission(state(session), adapter), expected, "C22 \(session)×\(adapterName)")
+            }
+        }
+        // 닫힘은 어댑터·세션보다 먼저다
+        for closed in ["Closed", "ClosedBeforeConnect"] {
+            for (adapterName, adapter, _) in adapters {
+                XCTAssertEqual(admission(state(closed), adapter), "reject(CLIENT_CLOSED)", "C22 \(closed)×\(adapterName)")
+            }
+        }
+        // 권한 거부의 retryability 는 canRequest 를 따른다
+        if case .reject(let f) = Core.gattAdmission(state("Ready"), adapter: .unauthorized(canRequest: false)) {
+            XCTAssertEqual(f.retryability, .never, "C22 권한 canRequest=false")
+        } else {
+            XCTFail("C22 권한 거부")
+        }
+        // NOT_CONNECTED 는 진입 검사에서 내지 않는다
+        for session in sessions {
+            for (_, adapter, _) in adapters {
+                XCTAssertFalse(admission(state(session), adapter).contains("NOT_CONNECTED"), "C22 NOT_CONNECTED 없음 \(session)")
+            }
         }
         var r = rig(manual, upTo: "Ready")
-        r.fire(.disconnect(hasLinkTarget: true, linked: true))
-        XCTAssertEqual(Core.gattAdmission(r.state)?.value, "NOT_CONNECTED", "C22 Disconnecting")
-        r = rig(auto, upTo: "Ready")
-        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
-        XCTAssertEqual(Core.gattAdmission(r.state)?.value, "NOT_CONNECTED", "C22 Recovering")
-        r = rig(manual, upTo: "Ready")
-        r.fire(.close)
-        XCTAssertEqual(Core.gattAdmission(r.state)?.value, "CLIENT_CLOSED", "C22 닫힘")
 
         // GATT 콜백 수용: 같은 세대의 Configuring·Ready 만
         for (phase, accepts) in [("Connecting", false), ("DiscoveringServices", false), ("Configuring", true), ("Ready", true)] {

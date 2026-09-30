@@ -399,17 +399,26 @@ package final class Session {
 // MARK: GATT 명령: read, subscribe, 알림
 
 extension Session {
-    /// 진입 검사(states.md §5, §9): 닫힘 → Ready 아님(`NOT_READY`, 연결 시도 중) → 연결 없음(`NOT_CONNECTED`) → 참조 없음. 통과하면 포트 참조
-    private func admitGatt(_ characteristic: CharacteristicRef) throws -> CharacteristicRef {
-        if let rejected = ConnectionCore.gattAdmission(core) {
-            switch rejected {
-            case .clientClosed:
-                throw AdapterMonitor.closedError()
-            case .notReady:
-                throw BLEError(failure: BLEFailure(code: .notReady, message: "Ready 가 아니라 명령을 받을 수 없다"))
-            default:
-                throw BLEError(failure: BLEFailure(code: .notConnected, message: "연결이 없다"))
+    /// 진입 검사(states.md §5 명령 진입 검사 순서): 닫힘 → 어댑터(§6) → 세션 Ready 아님(`NOT_READY`) → 참조 없음. 통과하면 포트 참조.
+    /// 판정은 `ConnectionCore.gattAdmission` 이 한다. 어댑터가 `unknown` 일 때만 판정을 기다리고(§6, connect 와 같은 대기),
+    /// 기다린 뒤의 확인은 모두 대기 이후에 한다. 확인과 큐 접수 사이에는 `await` 가 없다
+    private func admitGatt(_ characteristic: CharacteristicRef) async throws -> CharacteristicRef {
+        if case .awaitAdapterDecision = ConnectionCore.gattAdmission(core, adapter: context.adapter.current) {
+            let gate = context.adapter.gate()
+            try await withTaskCancellationHandler {
+                try await gate.value()
+            } onCancel: {
+                Task { @BLECoreActor in gate.cancel() }
             }
+        }
+        switch ConnectionCore.gattAdmission(core, adapter: context.adapter.current) {
+        case .admit:
+            break
+        case .reject(let failure):
+            throw BLEError(failure: failure)
+        case .awaitAdapterDecision:
+            // 판정을 받은 뒤 다시 unknown 이 됐다
+            throw BLEError(failure: AdapterCore.leftReady)
         }
         guard let portRef = portRefs[characteristic] else {
             throw BLEError(failure: BLEFailure(code: .characteristicNotFound, message: "이 기기에 없는 characteristic 이다"))
@@ -417,9 +426,9 @@ extension Session {
         return portRef
     }
 
-    /// 대기는 마지막 줄의 한 번뿐이다. 호출자가 취소돼도 작업은 큐 순서대로 끝까지 간다
+    /// 작업 대기는 마지막 줄의 한 번뿐이다(앞의 진입 검사는 어댑터가 `unknown` 일 때만 기다린다). 호출자가 취소돼도 접수된 작업은 큐 순서대로 끝까지 간다
     package func read(_ characteristic: CharacteristicRef) async throws -> Data {
-        let portRef = try admitGatt(characteristic)
+        let portRef = try await admitGatt(characteristic)
         let waiter = operations.submit(.read, characteristic: portRef, start: { [weak self] in
             self?.peripheral?.readValue(for: portRef)
         })
@@ -427,10 +436,11 @@ extension Session {
     }
 
     /// 나누기(states.md §8): automatic 은 플랫폼이 한 번에 받는 크기, fixed(n) 은 n. disabled·fixed 가 그 크기를 넘으면 아무것도 보내지 않는다.
-    /// 대기는 마지막 줄의 한 번뿐이다. 호출자가 취소돼도 나머지 조각은 끝까지 나간다
+    /// 작업 대기는 마지막 줄의 한 번뿐이다(앞의 진입 검사는 어댑터가 `unknown` 일 때만 기다린다). 호출자가 취소돼도 나머지 조각은 끝까지 나간다
     package func write(_ characteristic: CharacteristicRef, value: Data, options: WriteOptions) async throws -> WriteReceipt {
-        let portRef = try admitGatt(characteristic)
+        let portRef = try await admitGatt(characteristic)
         guard let port = peripheral else {
+            // 방어 검사: Ready 면 기기 객체가 있다(states.md §5 NOT_CONNECTED)
             throw BLEError(failure: BLEFailure(code: .notConnected, message: "연결이 없다"))
         }
         let platformMax = port.maximumWriteValueLength(for: options.mode)
@@ -471,7 +481,7 @@ extension Session {
 
     /// CCCD 확인 뒤 성공. 이미 구독했어도 CCCD 를 다시 쓴다. 의도와 활성 집합은 작업이 끝날 때 큐가 정한다(호출자 취소와 무관)
     package func subscribe(_ characteristic: CharacteristicRef) async throws {
-        let portRef = try admitGatt(characteristic)
+        let portRef = try await admitGatt(characteristic)
         pendingSubscribes.insert(characteristic)
         let waiter = operations.submit(
             .setNotify(enabled: true),

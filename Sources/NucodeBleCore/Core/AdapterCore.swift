@@ -78,6 +78,11 @@ package enum AdapterCore {
 
     package static func value(_ state: State) -> AdapterState { state.value }
 
+    /// 대기 없이 내리는 명령 판정(§6 판정표). `unknown` 이면 nil: 판정 대기(`gateRequested`)가 필요하다
+    package static func immediateVerdict(_ value: AdapterState) -> GateOutcome? {
+        verdict(value, deadlineReached: false, authorization: nil)
+    }
+
     // MARK: 값 옮김
 
     package static func map(radio: Radio, authorization: Authorization) -> AdapterState {

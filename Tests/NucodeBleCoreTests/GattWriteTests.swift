@@ -105,7 +105,7 @@ final class GattWriteTests: XCTestCase {
             _ = try await session.write(central.peripheral.characteristicRef("nus.rx"), value: Data([1]), options: WriteOptions())
             XCTFail("must fail")
         } catch let error as BLEError {
-            XCTAssertEqual(error.failure.code, .notConnected)
+            XCTAssertEqual(error.failure.code, .notReady, "연결 전: 세션이 Ready 가 아니다(states.md §5 진입 검사 3)")
         }
         client.close()
     }
