@@ -111,6 +111,13 @@ package final class FakePeripheral: PeripheralPort {
         fakeEmit(self) { $0.dropLink(error: nil) }
     }
 
+    /// 대기 connect 를 실패로 끝낸다(`didFailToConnect`). 대기가 없으면 무동작
+    func failPendingConnect(error: PortError) {
+        guard pendingConnect, !linked else { return }
+        pendingConnect = false
+        central?.deliverDidFailToConnect(error: error)
+    }
+
     /// 대기 connect 가 있고 붙을 수 있으면 `attachDelay` 뒤에 붙는다
     func attachIfPossible() {
         guard canAttach, !attachScheduled else { return }

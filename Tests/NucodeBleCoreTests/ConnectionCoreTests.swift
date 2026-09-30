@@ -31,6 +31,7 @@ final class ConnectionCoreTests: XCTestCase {
         case .link: "link"
         case .configuration: "configuration"
         case .cleanup: "cleanup"
+        case .adapterSettle: "adapterSettle"
         }
     }
 
@@ -110,6 +111,8 @@ final class ConnectionCoreTests: XCTestCase {
     }
 
     private let endLinkFx = ["cancelTimers", "cancelDiscovery", "dropLinkBound"]
+    /// 링크 유실 뒤 정착 창을 연다(게시 없음)
+    private let settleFx = ["cancelTimers", "cancelDiscovery", "dropLinkBound", "armTimer(adapterSettle,g1,\(Deadlines.adapterSettle))"]
 
     // MARK: 초기·링크 전이
 
@@ -327,9 +330,13 @@ final class ConnectionCoreTests: XCTestCase {
         r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
         check("C17", r, phase: "Recovering(LINK_FAILED)",
               effects: ["cancelTimers", "cancelDiscovery", "publish(Recovering(LINK_FAILED))", "dropLinkBound", "connectPeripheral"])
+        // Ready 에서 auto 아님: 정착 창 동안 확정을 미루고, 창이 지나면 LINK_FAILED(states.md §3)
         r = rig(manual, upTo: "Ready")
         r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
-        check("C17", r, phase: "Disconnected(Failed:LINK_FAILED)")
+        check("C17", r, phase: "Ready", effects: settleFx)
+        r.fire(.timerFired(kind: .adapterSettle, generation: 1))
+        check("C17", r, phase: "Disconnected(Failed:LINK_FAILED)",
+              effects: endLinkFx + ["publish(Disconnected(Failed:LINK_FAILED))", "resolveDisconnectWaiter"])
 
         // C18
         r = rig(auto, upTo: "Ready")
@@ -344,6 +351,8 @@ final class ConnectionCoreTests: XCTestCase {
         r = rig(auto, upTo: "Ready")
         r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
         r.fire(.linkFailedToConnect(sameDevice: true, failure: failure(.linkFailed)))
+        check("C18", r, phase: "Recovering(LINK_FAILED)", effects: settleFx)
+        r.fire(.timerFired(kind: .adapterSettle, generation: 1))
         check("C18", r, phase: "Disconnected(Failed:LINK_FAILED)")
 
         // C19
@@ -395,6 +404,21 @@ final class ConnectionCoreTests: XCTestCase {
         r.fire(.adapterChanged(.ready, now: 3000))
         check("C20", r, phase: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", effects: [])
 
+        // C20: 어댑터가 꺼진 동안 반환 전에 실패한 connect 는 복귀 재연결을 지우지 않는다. 받아들여진 새 시도는 지운다
+        r = rig(auto, upTo: "Ready")
+        r.fire(.adapterChanged(.poweredOff, now: 2000))
+        r.fire(.connect(options: auto, now: 2500))
+        XCTAssertTrue(r.state.resumeOnAdapterReady, "C20 시작 전 시도는 복귀 재연결 유지")
+        r.fire(.attemptFailed(generation: 2))
+        XCTAssertTrue(r.state.resumeOnAdapterReady, "C20 반환 전 실패 뒤 유지")
+        r.fire(.adapterChanged(.ready, now: 3000))
+        check("C20", r, phase: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", effects: ["beginAttempt(g3,auto=true,deadline=none)"])
+        r = rig(auto, upTo: "Ready")
+        r.fire(.adapterChanged(.poweredOff, now: 2000))
+        r.fire(.connect(options: auto, now: 2500))
+        r.fire(.attemptAccepted(generation: 2, now: 2600))
+        XCTAssertFalse(r.state.resumeOnAdapterReady, "C20 받아들여진 새 시도는 복귀 재연결을 지운다")
+
         // C25: 오래된 세대·live 아님
         r = rig(manual, upTo: "Connecting")
         r.fire(.linkConnected(sameDevice: false))
@@ -416,6 +440,130 @@ final class ConnectionCoreTests: XCTestCase {
         check("C25", r, phase: "DiscoveringServices", effects: [])
         XCTAssertFalse(Core.acceptsDiscoveryCallback(r.state, sameDevice: true, generation: 9), "C25 탐색 콜백 세대")
         XCTAssertTrue(Core.acceptsDiscoveryCallback(r.state, sameDevice: true, generation: 1), "C25 탐색 콜백")
+    }
+
+    // MARK: 어댑터 정착 창 (states.md §3)
+
+    /// 링크 유실 콜백과 어댑터 이탈 알림의 순서·간격별 최종 상태. S01~S08.
+    func test_adapterSettleWindow() {
+        enum Step {
+            case linkLost, pendingFailed, adapter(AdapterState), windowElapsed
+        }
+        struct Row {
+            let id: String
+            let options: ConnectOptions
+            let steps: [Step]
+            /// 사건마다 낸 게시(없으면 빈 칸)
+            let publishes: [[String]]
+            let final: String
+            let resume: Bool
+        }
+        let off = AdapterState.poweredOff
+        let rows: [Row] = [
+            Row(id: "S01 해제 콜백 → 창 안 어댑터 꺼짐(auto 아님)", options: manual,
+                steps: [.linkLost, .adapter(off)],
+                publishes: [[], ["Disconnected(Failed:ADAPTER_UNAVAILABLE)"]],
+                final: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", resume: false),
+            Row(id: "S02 해제 콜백 → 대기 connect 실패 → 창 안 어댑터 꺼짐(auto)", options: auto,
+                steps: [.linkLost, .pendingFailed, .adapter(off)],
+                publishes: [["Recovering(LINK_FAILED)"], [], ["Disconnected(Failed:ADAPTER_UNAVAILABLE)"]],
+                final: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", resume: true),
+            Row(id: "S03 해제 콜백 → 어댑터 꺼짐, 대기 connect 실패 없음(auto, 비행기 모드 실측)", options: auto,
+                steps: [.linkLost, .adapter(off)],
+                publishes: [["Recovering(LINK_FAILED)"], ["Disconnected(Failed:ADAPTER_UNAVAILABLE)"]],
+                final: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", resume: true),
+            Row(id: "S04 해제 콜백 → 창 만료(auto 아님): 지금처럼 LINK_FAILED, 늦은 어댑터 알림은 원인을 바꾸지 않는다", options: manual,
+                steps: [.linkLost, .windowElapsed, .adapter(off)],
+                publishes: [[], ["Disconnected(Failed:LINK_FAILED)"], []],
+                final: "Disconnected(Failed:LINK_FAILED)", resume: false),
+            Row(id: "S05 대기 connect 실패 → 창 만료(auto): LINK_FAILED, 복귀 재연결 없음", options: auto,
+                steps: [.linkLost, .pendingFailed, .windowElapsed, .adapter(off)],
+                publishes: [["Recovering(LINK_FAILED)"], [], ["Disconnected(Failed:LINK_FAILED)"], []],
+                final: "Disconnected(Failed:LINK_FAILED)", resume: false),
+            Row(id: "S06 어댑터 먼저(auto 아님): 뒤늦은 해제 콜백은 무시", options: manual,
+                steps: [.adapter(off), .linkLost, .windowElapsed],
+                publishes: [["Disconnected(Failed:ADAPTER_UNAVAILABLE)"], [], []],
+                final: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", resume: false),
+            Row(id: "S07 어댑터 먼저(auto): 뒤늦은 해제·실패 콜백은 무시", options: auto,
+                steps: [.adapter(off), .linkLost, .pendingFailed],
+                publishes: [["Disconnected(Failed:ADAPTER_UNAVAILABLE)"], [], []],
+                final: "Disconnected(Failed:ADAPTER_UNAVAILABLE)", resume: true),
+            Row(id: "S08 해제 콜백 → 창 안 권한 상실", options: manual,
+                steps: [.linkLost, .adapter(.unauthorized(canRequest: false))],
+                publishes: [[], ["Disconnected(Failed:PERMISSION_DENIED)"]],
+                final: "Disconnected(Failed:PERMISSION_DENIED)", resume: false),
+        ]
+        for row in rows {
+            var r = rig(row.options, upTo: "Ready")
+            for (index, step) in row.steps.enumerated() {
+                let effects: [Core.Effect]
+                switch step {
+                case .linkLost: effects = r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+                case .pendingFailed: effects = r.fire(.linkFailedToConnect(sameDevice: true, failure: failure(.linkFailed)))
+                case .adapter(let adapter): effects = r.fire(.adapterChanged(adapter, now: 2000))
+                case .windowElapsed: effects = r.fire(.timerFired(kind: .adapterSettle, generation: 1))
+                }
+                let published = effects.compactMap { effect -> String? in
+                    if case .publish(let phase) = effect { return name(phase) }
+                    return nil
+                }
+                XCTAssertEqual(published, row.publishes[index], "\(row.id) 사건 \(index) 게시")
+            }
+            check(row.id, r, phase: row.final)
+            XCTAssertNil(r.state.pendingLoss, "\(row.id) 창 닫힘")
+            XCTAssertEqual(r.state.resumeOnAdapterReady, row.resume, "\(row.id) 복귀 재연결 준비")
+            // 어댑터 복귀: auto 이고 어댑터 원인으로 끝났을 때만 한 번 다시 연결한다
+            let back = r.fire(.adapterChanged(.ready, now: 5000)).map { name($0) }
+            XCTAssertEqual(back, row.resume ? ["beginAttempt(g2,auto=true,deadline=none)"] : [], "\(row.id) 복귀")
+        }
+    }
+
+    /// 창 동안의 명령·늦은 사건. S09~S13.
+    func test_adapterSettleWindowCommands() {
+        // S09: 창 동안 링크가 없다. GATT 명령은 NOT_CONNECTED, 콜백은 받지 않는다. 공개 단계는 그대로
+        var r = rig(manual, upTo: "Ready")
+        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+        XCTAssertEqual(Core.gattAdmission(r.state)?.value, "NOT_CONNECTED", "S09 GATT 진입")
+        XCTAssertFalse(Core.isReady(r.state), "S09 isReady")
+        XCTAssertFalse(Core.acceptsGattCallback(r.state, sameDevice: true, generation: 1), "S09 GATT 콜백")
+        XCTAssertEqual(name(Core.snapshotPhase(r.state)), "Ready", "S09 스냅숏은 게시된 단계")
+        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+        check("S09", r, phase: "Ready", effects: [])
+
+        // S10: 창 동안 disconnect 는 사용자 해제로 끝나고 창 기한을 거둔다
+        r = rig(manual, upTo: "Ready")
+        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+        r.fire(.disconnect(hasLinkTarget: true, linked: false))
+        check("S10", r, phase: "Disconnected(Requested)")
+        XCTAssertTrue(r.lastEffects.map { name($0) }.contains("cancelTimers"), "S10 기한 거둠")
+        XCTAssertNil(r.state.pendingLoss, "S10 창 닫힘")
+        r.fire(.timerFired(kind: .adapterSettle, generation: 1))
+        check("S10", r, phase: "Disconnected(Requested)", effects: [])
+
+        // S11: 창 동안 close
+        r = rig(auto, upTo: "Ready")
+        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+        r.fire(.linkFailedToConnect(sameDevice: true, failure: failure(.linkFailed)))
+        r.fire(.close)
+        XCTAssertEqual(name(Core.snapshotPhase(r.state)), "Disconnected(ClientClosed)", "S11 스냅숏")
+        XCTAssertNil(r.state.pendingLoss, "S11 창 닫힘")
+        r.fire(.timerFired(kind: .adapterSettle, generation: 1))
+        XCTAssertTrue(r.lastEffects.isEmpty, "S11 닫힌 뒤 기한 무시")
+
+        // S12: 다른 세대의 창 기한은 무시
+        r = rig(manual, upTo: "Ready")
+        r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+        r.fire(.timerFired(kind: .adapterSettle, generation: 2))
+        check("S12", r, phase: "Ready", effects: [])
+        XCTAssertNotNil(r.state.pendingLoss, "S12 창 유지")
+
+        // S13: Ready 전 단계의 링크 실패에는 창이 없다(C12·C13 과 같다)
+        for phase in ["Connecting", "DiscoveringServices", "Configuring"] {
+            r = rig(manual, upTo: phase)
+            r.fire(.linkDisconnected(sameDevice: true, failure: failure(.linkFailed)))
+            check("S13", r, phase: "Disconnected(Failed:LINK_FAILED)")
+            XCTAssertNil(r.state.pendingLoss, "S13 창 없음 \(phase)")
+        }
     }
 
     // MARK: GATT 진입·등록

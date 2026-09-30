@@ -35,6 +35,7 @@ package final class Session {
     private var delegateRelay: SessionPeripheralDelegate?
     private var configurationDeadline: Task<Void, Never>?
     private var cleanupDeadline: Task<Void, Never>?
+    private var settleDeadline: Task<Void, Never>?
     private var disconnectWaiter: Waiter<Void>?
     private let context: SessionContext
 
@@ -147,6 +148,7 @@ package final class Session {
             cancelTimer(.link)
             cancelTimer(.configuration)
             cancelTimer(.cleanup)
+            cancelTimer(.adapterSettle)
         case .startDiscovery(let generation):
             guard let peripheral else { break }
             let created = LinkSetup(
@@ -294,6 +296,7 @@ package final class Session {
         case .link: linkDeadline = task
         case .configuration: configurationDeadline = task
         case .cleanup: cleanupDeadline = task
+        case .adapterSettle: settleDeadline = task
         }
     }
 
@@ -308,6 +311,9 @@ package final class Session {
         case .cleanup:
             cleanupDeadline?.cancel()
             cleanupDeadline = nil
+        case .adapterSettle:
+            settleDeadline?.cancel()
+            settleDeadline = nil
         }
     }
 

@@ -84,11 +84,16 @@ package final class FakeCentral: CentralPort {
 
     /// 실제 플랫폼이 앱에 알리는 경로와 같게 상태 콜백을 낸다. 켜짐이 아니게 되면 스캔이 멈추고
     /// (콜백 없음), 상태 콜백 뒤에 링크가 끊긴다(`didDisconnect`, 오류 있음).
+    /// 대기 connect 는 상태 콜백 **전에** 실패한다(`didFailToConnect`, `CBInternalErrorDomain` 32). iPhone XR 실측(2026-09-30):
+    /// 설정 앱으로 끄면 대기 connect 실패가 poweredOff 상태 콜백보다 60ms 먼저 왔다(contract/states.md §3).
     package func setAdapter(_ newState: CentralPortState, authorization newAuthorization: PortAuthorization = .allowedAlways) {
         state = newState
         authorization = newAuthorization
         if newState != .poweredOn { stopScan() }
         fakeEmit(self) { central in
+            if central.state != .poweredOn {
+                central.peripheral.failPendingConnect(error: PortError(domain: "CBInternalErrorDomain", code: 32, message: "Local device is powered off."))
+            }
             central.delegate?.centralDidUpdateState(central)
             if central.state == .poweredOn {
                 central.peripheral.attachIfPossible()
@@ -102,6 +107,10 @@ package final class FakeCentral: CentralPort {
 
     func deliverDidConnect() {
         delegate?.central(self, didConnect: peripheral)
+    }
+
+    func deliverDidFailToConnect(error: PortError?) {
+        delegate?.central(self, didFailToConnect: peripheral, error: error)
     }
 
     func deliverDidDisconnect(error: PortError?) {

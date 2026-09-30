@@ -11,6 +11,13 @@ package enum ConnectionCore {
         package let linkDeadlineAt: Int?
     }
 
+    /// 링크를 잃었지만 끝난 원인을 아직 확정하지 않았다(contract/states.md §3 어댑터 정착 창).
+    /// 창 안에 어댑터가 Ready 를 벗어나면 어댑터 원인으로, 창이 지나면 `failure` 로 끝낸다
+    package struct PendingLoss {
+        package let generation: UInt64
+        package let failure: BLEFailure
+    }
+
     package struct State {
         package var phase: ConnectionState = .disconnected(reason: .initial)
         package var generation: UInt64 = 0
@@ -23,6 +30,8 @@ package enum ConnectionCore {
         package var hasBeenReady = false
         /// autoReconnect 세션이 어댑터 이탈로 끝났다. 어댑터가 돌아오면 한 번 다시 연결한다
         package var resumeOnAdapterReady = false
+        /// 원인 확정을 기다리는 링크 유실. 있는 동안 링크는 없고(`live == nil`) 단계는 게시하지 않은 채 그대로다
+        package var pendingLoss: PendingLoss?
         package var closed = false
         /// 열린 채 닫힌 세션의 마지막 단계. 스냅숏에만 쓰인다
         package var closedPhase: ConnectionState?
@@ -34,6 +43,8 @@ package enum ConnectionCore {
         case link
         case configuration
         case cleanup
+        /// 링크 유실 뒤 어댑터 이탈 알림을 기다리는 창(`Deadlines.adapterSettle`)
+        case adapterSettle
     }
 
     package enum Event {
@@ -118,7 +129,9 @@ package enum ConnectionCore {
         case .linkFailedToConnect(let sameDevice, let failure):
             guard sameDevice, next.live != nil else { break }
             switch next.phase {
-            case .connecting, .recovering: endLink(&next, &effects, .failed(failure))
+            case .connecting: endLink(&next, &effects, .failed(failure))
+            // 대기 connect 실패는 블루투스 끄기의 첫 신호일 수 있다(어댑터 알림이 뒤에 온다)
+            case .recovering: beginPendingLoss(&next, &effects, failure)
             default: break
             }
         case .timerFired(let kind, let generation):
@@ -186,7 +199,6 @@ package enum ConnectionCore {
 
     private static func startAttempt(_ s: inout State, _ fx: inout [Effect], _ options: ConnectOptions, _ now: Int) {
         s.generation += 1
-        s.resumeOnAdapterReady = false
         let deadline = options.autoReconnect ? nil : now + Deadlines.link
         s.attempt = PendingAttempt(generation: s.generation, options: options, linkDeadlineAt: deadline)
         fx.append(.beginAttempt(generation: s.generation, options: options, linkDeadlineAt: deadline))
@@ -195,6 +207,8 @@ package enum ConnectionCore {
     private static func accept(_ s: inout State, _ fx: inout [Effect], _ generation: UInt64, _ now: Int) {
         guard let attempt = s.attempt, attempt.generation == generation else { return }
         s.attempt = nil
+        // 어댑터 복귀 재연결은 OS 가 새 시도를 받아들일 때 지운다. 반환 전에 실패한 시도(어댑터 꺼짐 등)는 지우지 않는다(states.md §2·§4)
+        s.resumeOnAdapterReady = false
         s.intent = attempt.options
         s.live = generation
         s.hasBeenReady = false
@@ -218,6 +232,9 @@ package enum ConnectionCore {
             if s.hasBeenReady, s.intent?.autoReconnect == true {
                 s.phase = .recovering(lastFailure: failure)
                 fx += [.cancelTimers, .cancelDiscovery, .publish(s.phase), .dropLinkBoundState(message: "링크가 끊겨 작업이 무효가 됐다"), .connectPeripheral]
+            } else if case .ready = s.phase {
+                // Ready 에서 잃은 링크는 블루투스 끄기의 첫 신호일 수 있다(어댑터 알림이 뒤에 온다)
+                beginPendingLoss(&s, &fx, failure)
             } else {
                 endLink(&s, &fx, .failed(failure))
             }
@@ -226,9 +243,22 @@ package enum ConnectionCore {
         }
     }
 
+    /// 링크를 잃었다. 끝난 원인은 `Deadlines.adapterSettle` 동안 확정하지 않는다(states.md §3).
+    /// 링크에 딸린 것은 지금 거두고, 단계는 게시하지 않는다. 확정은 어댑터 이탈(`adapterChanged`) 또는 창 만료(`timerFired`)가 한다
+    private static func beginPendingLoss(_ s: inout State, _ fx: inout [Effect], _ failure: BLEFailure) {
+        guard let generation = s.live else { return }
+        s.live = nil
+        s.pendingLoss = PendingLoss(generation: generation, failure: failure)
+        fx += [
+            .cancelTimers, .cancelDiscovery, .dropLinkBoundState(message: invalidationMessage(.failed(failure))),
+            .armTimer(kind: .adapterSettle, generation: generation, milliseconds: Deadlines.adapterSettle),
+        ]
+    }
+
     /// 진행 중이던 것을 모두 거두고 상태를 게시한다
     private static func endLink(_ s: inout State, _ fx: inout [Effect], _ reason: DisconnectReason) {
         s.live = nil
+        s.pendingLoss = nil
         s.phase = .disconnected(reason: reason)
         fx += [.cancelTimers, .cancelDiscovery, .dropLinkBoundState(message: invalidationMessage(reason)), .publish(s.phase), .resolveDisconnectWaiter]
     }
@@ -250,6 +280,12 @@ package enum ConnectionCore {
     // MARK: 기한 (§2)
 
     private static func timerFired(_ s: inout State, _ fx: inout [Effect], _ kind: TimerKind, _ generation: UInt64) {
+        if case .adapterSettle = kind {
+            // 창 안에 어댑터 이탈이 없었다: 링크 실패로 확정한다
+            guard let loss = s.pendingLoss, loss.generation == generation else { return }
+            endLink(&s, &fx, .failed(loss.failure))
+            return
+        }
         guard s.live == generation else { return }
         switch (kind, s.phase) {
         case (.link, .connecting):
@@ -339,6 +375,7 @@ package enum ConnectionCore {
             fx.append(.abortAttempt(generation: attempt.generation))
         }
         s.live = nil
+        s.pendingLoss = nil
         s.resumeOnAdapterReady = false
         if case .disconnected = s.phase {} else {
             s.closedPhase = .disconnected(reason: .clientClosed)
@@ -356,6 +393,7 @@ package enum ConnectionCore {
     /// GATT 명령 진입 검사(§5·§9). 통과하면 nil
     package static func gattAdmission(_ s: State) -> FailureCode? {
         if s.closed { return .clientClosed }
+        if s.pendingLoss != nil { return .notConnected }
         switch s.phase {
         case .ready: return nil
         case .connecting, .discoveringServices, .configuring: return .notReady
@@ -384,7 +422,7 @@ package enum ConnectionCore {
     }
 
     package static func isReady(_ s: State) -> Bool {
-        if case .ready = s.phase { return true }
+        if s.pendingLoss == nil, case .ready = s.phase { return true }
         return false
     }
 }
