@@ -131,7 +131,7 @@ final class LinkSetupTests: XCTestCase {
         return ScriptedCentral(peripheral: peripheral)
     }
 
-    private func start(_ central: any CentralPort) -> (BLEClient, Session) {
+    private func start(_ central: any CentralPort) -> (DefaultBLEClient, Session) {
         let client = Support.makeClient { central }
         client.start()
         return (client, client.runtime.registry.session(for: id))

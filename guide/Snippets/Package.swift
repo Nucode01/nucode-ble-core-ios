@@ -12,6 +12,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "GuideSnippets", dependencies: [.product(name: "NucodeBleCore", package: "ios")]),
+        // 컴파일만으로는 못 잡는 예시(가짜 client 의 교착·replay 등)를 실제로 돌려 본다
+        .testTarget(name: "GuideSnippetsTests", dependencies: ["GuideSnippets", .product(name: "NucodeBleCore", package: "ios")]),
     ],
     swiftLanguageModes: [.v6]
 )

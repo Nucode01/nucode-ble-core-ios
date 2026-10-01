@@ -60,7 +60,7 @@ private final class ConnectCentral: CentralPort {
 }
 
 /// 성공은 "ok", 실패는 실패 코드
-private func connectOutcome(_ client: BLEClient, _ options: ConnectOptions) async -> String {
+private func connectOutcome(_ client: DefaultBLEClient, _ options: ConnectOptions) async -> String {
     do {
         _ = try await client.connect(FakeDeviceSpec.defaultID, options: options)
         return "ok"
@@ -84,7 +84,7 @@ final class ConnectTests: XCTestCase {
         forwardsScan: Bool = true,
         forwardsConnect: Bool = false,
         state: CentralPortState = .poweredOn
-    ) -> (BLEClient, ConnectCentral) {
+    ) -> (DefaultBLEClient, ConnectCentral) {
         let inner = Support.makeCentral(state: state)
         let central = ConnectCentral(inner: inner)
         central.knowsPeripheral = known
@@ -95,7 +95,7 @@ final class ConnectTests: XCTestCase {
         return (client, central)
     }
 
-    private func session(_ client: BLEClient) -> Session { client.runtime.registry.session(for: id) }
+    private func session(_ client: DefaultBLEClient) -> Session { client.runtime.registry.session(for: id) }
 
     private func describe(_ state: ConnectionState) -> String {
         switch state {
@@ -115,7 +115,7 @@ final class ConnectTests: XCTestCase {
         }
     }
 
-    private func stateName(_ client: BLEClient) -> String { describe(session(client).state.value) }
+    private func stateName(_ client: DefaultBLEClient) -> String { describe(session(client).state.value) }
 
     private func waitUntil(realMilliseconds limit: Int = 3000, _ condition: () -> Bool) async -> Bool {
         var waited = 0

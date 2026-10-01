@@ -28,7 +28,7 @@ final class GattReadSubscribeTests: XCTestCase {
         return false
     }
 
-    private func makeClient() throws -> (BLEClient, FakeCentral, Session) {
+    private func makeClient() throws -> (DefaultBLEClient, FakeCentral, Session) {
         let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
@@ -37,7 +37,7 @@ final class GattReadSubscribeTests: XCTestCase {
         return (client, central, client.runtime.registry.session(for: id))
     }
 
-    private func makeReady(autoReconnect: Bool = false) async throws -> (BLEClient, FakeCentral, Session) {
+    private func makeReady(autoReconnect: Bool = false) async throws -> (DefaultBLEClient, FakeCentral, Session) {
         let (client, central, session) = try makeClient()
         _ = try await client.connect(id, options: ConnectOptions(autoReconnect: autoReconnect))
         let ready = await waitUntil { isReady(session) }

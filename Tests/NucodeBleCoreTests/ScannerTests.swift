@@ -49,7 +49,7 @@ final class ScannerTests: XCTestCase {
     private static let uuidB = BLEUUID(string: "180f")!
 
     @BLECoreActor
-    private func makeStarted(state: CentralPortState = .poweredOn) -> (BLEClient, RecordingCentral) {
+    private func makeStarted(state: CentralPortState = .poweredOn) -> (DefaultBLEClient, RecordingCentral) {
         let central = RecordingCentral(inner: Support.makeCentral())
         central.state = state
         let client = Support.makeClient { central }
@@ -66,7 +66,7 @@ final class ScannerTests: XCTestCase {
     }
 
     @BLECoreActor
-    private func scanState(_ client: BLEClient) -> String { describe(client.runtime.scanner.states.value) }
+    private func scanState(_ client: DefaultBLEClient) -> String { describe(client.runtime.scanner.states.value) }
 
     private func request(name: String? = nil, services: [BLEUUID] = [], mode: ScanMode = .balanced) -> ScanRequest {
         ScanRequest(filter: ScanFilter(serviceUUIDs: services, namePrefix: name), options: ScanOptions(mode: mode))

@@ -30,7 +30,7 @@ public enum BackendError: Error, Sendable {
 /// 공개 API(`BLEClient`)를 `ScenarioBackend` 로 잇는 공통 부분. sim 러너와 device 러너가 같은 소스를 쓴다.
 /// `client.start()` 는 부르는 쪽이 `attach` 전에 한다(어댑터·스캔 레인의 첫 값이 `Ready`·`Idle` 이 되도록).
 public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
-    private let client: BLEClient
+    private let client: any BLEClient
     private let profile: PeripheralProfile
     private let targetID: PeripheralID
     private let hooks: BackendHooks
@@ -47,7 +47,7 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
     private var observers: [Task<Void, Never>] = []
 
     /// 첫 단계 전에 대상 기기의 세션을 얻는다(contract/README §snapshot)
-    public init(client: BLEClient, profile: PeripheralProfile, targetID: PeripheralID, hooks: BackendHooks) throws {
+    public init(client: any BLEClient, profile: PeripheralProfile, targetID: PeripheralID, hooks: BackendHooks) throws {
         self.client = client
         self.profile = profile
         self.targetID = targetID

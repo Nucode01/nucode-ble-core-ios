@@ -14,7 +14,7 @@ func adapterMessage(_ state: AdapterState) -> String? {
     }
 }
 
-func watchAdapter(_ client: BLEClient) -> Task<Void, Never> {
+func watchAdapter(_ client: any BLEClient) -> Task<Void, Never> {
     Task {
         for await state in client.adapterStates {
             print("adapter:", adapterMessage(state) ?? "ready")
@@ -43,7 +43,7 @@ let everything = ScanRequest(filter: ScanFilter(), options: ScanOptions(mode: .l
 
 // region guide:scan-first
 /// 조건에 맞는 첫 기기를 `timeout` 안에 찾는다. 못 찾으면 nil. 어느 쪽이든 스캔은 멈춘다
-func findFirst(_ client: BLEClient, filter: ScanFilter, timeout: Duration = .seconds(10)) async throws -> ScanResult? {
+func findFirst(_ client: any BLEClient, filter: ScanFilter, timeout: Duration = .seconds(10)) async throws -> ScanResult? {
     let results = client.scanResults // startScan 전에 구독해야 첫 결과를 놓치지 않는다
     try await client.startScan(request: ScanRequest(filter: filter))
     let found = await withTaskGroup(of: ScanResult?.self) { group in
@@ -66,7 +66,7 @@ func findFirst(_ client: BLEClient, filter: ScanFilter, timeout: Duration = .sec
 
 // region guide:scan-list
 /// 목록 화면용: `duration` 동안 본 기기를 기기별 최신 결과 하나로 모아 신호 세기 순으로 돌려준다
-func collectDevices(_ client: BLEClient, filter: ScanFilter, for duration: Duration) async throws -> [ScanResult] {
+func collectDevices(_ client: any BLEClient, filter: ScanFilter, for duration: Duration) async throws -> [ScanResult] {
     let results = client.scanResults
     try await client.startScan(request: ScanRequest(filter: filter))
     let collector = Task {
@@ -94,7 +94,7 @@ func savedDevice() -> PeripheralID? {
 
 // region guide:connect-retry
 /// autoReconnect 없이 연결하되, 다시 해 볼 만한 실패는 몇 번 더 시도한다
-func connectWithRetry(_ client: BLEClient, _ id: PeripheralID, attempts: Int = 3) async throws -> any BLESession {
+func connectWithRetry(_ client: any BLEClient, _ id: PeripheralID, attempts: Int = 3) async throws -> any BLESession {
     var lastError: any Error = CancellationError()
     for attempt in 1...attempts {
         let session = try client.session(for: id)

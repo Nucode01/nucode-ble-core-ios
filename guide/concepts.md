@@ -5,7 +5,7 @@
 | | `BLEClient` | `BLESession` |
 |---|---|---|
 | 무엇 | 라이브러리 진입점. 앱당 하나 | 기기 하나를 보는 창 |
-| 만드는 법 | `BLEClient()` 또는 `BLEClient(options: BLEOptions(restoreIdentifier:))` | `try await client.connect(id, options:)` 또는 `try client.session(for: id)` |
+| 만드는 법 | `BLEClientFactory.make()` 또는 `BLEClientFactory.make(options: BLEOptions(restoreIdentifier:))` (구현 클래스는 패키지 밖에서 보이지 않습니다) | `try await client.connect(id, options:)` 또는 `try client.session(for: id)` |
 | 하는 일 | 어댑터 상태, 스캔, 이벤트, 스냅샷, 복원 등록, 전체 종료 | 연결 · 해제, read · write, 구독, 기기별 상태 |
 | 수명 | `close()` 하면 끝(되살릴 수 없음) | 가벼운 view. 같은 ID 로 여러 번 얻어도 같은 상태를 봅니다 |
 

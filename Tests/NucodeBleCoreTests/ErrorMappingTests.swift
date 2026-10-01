@@ -77,4 +77,17 @@ final class ErrorMappingTests: XCTestCase {
         RestoreIdentifierGuard.claimOrTrap(nil)
         RestoreIdentifierGuard.claimOrTrap(nil)
     }
+
+    /// 공개 factory 는 생성 때 restoreIdentifier 를 점유한다(`start()` 없이)
+    func testFactoryClaimsRestoreIdentifier() {
+        let identifier = "kr.co.nucode.test.\(UUID().uuidString)"
+        _ = BLEClientFactory.make(options: BLEOptions(restoreIdentifier: identifier))
+        XCTAssertFalse(RestoreIdentifierGuard.claim(identifier))
+    }
+
+    /// 식별자 없는 factory 생성은 여러 번 해도 된다
+    func testFactoryWithoutIdentifierCanBeMadeTwice() {
+        _ = BLEClientFactory.make()
+        _ = BLEClientFactory.make()
+    }
 }

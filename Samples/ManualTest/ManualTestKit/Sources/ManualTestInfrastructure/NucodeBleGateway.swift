@@ -8,7 +8,7 @@ import os
 public final class NucodeBleGateway: BleGateway {
     public let events: AsyncStream<GatewayEvent>
     private let continuation: AsyncStream<GatewayEvent>.Continuation
-    private let client: BLEClient
+    private let client: any BLEClient
     private let tracking = OSAllocatedUnfairLock(initialState: Tracking())
 
     private struct Tracking {
@@ -28,7 +28,7 @@ public final class NucodeBleGateway: BleGateway {
     /// 같은 프로세스에서 같은 restoreIdentifier 로 두 번 만들면 라이브러리가 trap 한다
     public init(restoreIdentifier: String?) {
         (events, continuation) = AsyncStream.makeStream(of: GatewayEvent.self)
-        client = BLEClient(options: BLEOptions(restoreIdentifier: restoreIdentifier))
+        client = BLEClientFactory.make(options: BLEOptions(restoreIdentifier: restoreIdentifier))
     }
 
     public func start(registration: DeviceRegistration?) {

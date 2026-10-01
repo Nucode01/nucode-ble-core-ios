@@ -13,11 +13,11 @@ final class DeviceModel {
     private(set) var lastMessage: String = ""
     private(set) var errorText: String?
 
-    private let client: BLEClient
+    private let client: any BLEClient
     private let id: PeripheralID
     private var tasks: [Task<Void, Never>] = []
 
-    init(client: BLEClient, id: PeripheralID) {
+    init(client: any BLEClient, id: PeripheralID) {
         self.client = client
         self.id = id
     }
@@ -100,7 +100,7 @@ import UIKit
 /// 상태 복원을 쓰는 앱의 시작 코드. 시스템이 앱을 백그라운드에서 다시 실행하면 화면 없이 이 함수만 불린다.
 /// 그래서 client 생성 · 등록 · start 는 화면(onAppear)이 아니라 여기서 한다
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    let ble = BLEClient(options: BLEOptions(restoreIdentifier: "com.example.app.ble"))
+    let ble = BLEClientFactory.make(options: BLEOptions(restoreIdentifier: "com.example.app.ble"))
 
     func application(
         _ application: UIApplication,
@@ -150,10 +150,10 @@ struct RestorationApp: App {
 @MainActor
 final class BLEContainer {
     static let shared = BLEContainer()
-    let client: BLEClient
+    let client: any BLEClient
 
     private init() {
-        client = BLEClient()
+        client = BLEClientFactory.make()
         client.start()
     }
 }

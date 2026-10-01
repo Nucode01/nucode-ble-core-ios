@@ -43,7 +43,7 @@ final class LinkLossTests: XCTestCase {
 
     private var events: AsyncStream<BLEEvent>?
 
-    private func makeReady(autoReconnect: Bool) async throws -> (BLEClient, FakeCentral, Session) {
+    private func makeReady(autoReconnect: Bool) async throws -> (DefaultBLEClient, FakeCentral, Session) {
         let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
@@ -62,7 +62,7 @@ final class LinkLossTests: XCTestCase {
         return false
     }
 
-    private func history(_ client: BLEClient, _ session: Session) async -> [String] {
+    private func history(_ client: DefaultBLEClient, _ session: Session) async -> [String] {
         let stream = events
         client.close()
         var names: [String] = []

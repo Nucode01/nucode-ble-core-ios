@@ -19,7 +19,7 @@ NucodeBleCore 를 처음 보는 iOS 개발자가 이 가이드만 따라 해서 
 | [레시피: 읽기 · 쓰기 · 구독](recipes/data.md) | read · write(분할 · 응답 없음 · 고정 크기) · notify · 요청-응답 · 활성 구독 |
 | [레시피: 연결 유지 · 여러 기기](recipes/connection.md) | autoReconnect · 복구 감시와 포기 · 블루투스 끄고 켜기 · 여러 기기 · 세션 다시 얻기 |
 | [레시피: 실패 처리 · 이벤트 · 스냅샷](recipes/errors-diagnostics.md) | 실패 문구 · 재시도 판단 · 코드표 · CoreBluetooth 원인 · 이벤트 로그 · 스냅샷 |
-| [레시피: 앱 구조에 넣기](recipes/app-integration.md) | client 소유 · SwiftUI 모델 · 상태 복원(백그라운드 재실행) · `close()` |
+| [레시피: 앱 구조에 넣기](recipes/app-integration.md) | client 소유 · SwiftUI 모델 · 상태 복원(백그라운드 재실행) · 시험에서 client 바꿔 끼우기 · `close()` |
 | [문제 해결과 한계](troubleshooting.md) | 자주 틀리는 것 · FAQ · 한계와 검증 범위 |
 
 처음이면 이 페이지 → 설치 → 핵심 개념 → 필요한 레시피 순서로 읽으세요.
@@ -148,7 +148,7 @@ func waitUntilReady(_ session: any BLESession, timeout: Duration = .seconds(30))
 <!-- snippet: quick-start -->
 ```swift
 // 1. 앱당 하나 만들고 앱 수명 동안 둔다
-let client = BLEClient()
+let client = BLEClientFactory.make()
 client.start() // 이때 CBCentralManager 가 만들어지고 권한 팝업이 뜬다
 
 // 2. 스캔: 결과 스트림을 먼저 얻고 시작한다

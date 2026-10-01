@@ -18,7 +18,7 @@ enum DeviceBackend {
     /// 어댑터 ready 대기와 대상 기기 스캔으로 기록 전 확보를 끝내고 백엔드를 만든다
     static func make(scenario: Scenario) async throws -> ClientBackend {
         let profile = scenario.peripheral
-        let client = BLEClient(options: BLEOptions())
+        let client = BLEClientFactory.make(options: BLEOptions())
         client.start()
         do {
             try await awaitAdapterReady(client)
@@ -67,7 +67,7 @@ enum DeviceBackend {
         return CharacteristicRef(service: ServiceRef(uuid: service, instanceIndex: 0), uuid: uuid, instanceIndex: 0)
     }
 
-    private static func awaitAdapterReady(_ client: BLEClient) async throws {
+    private static func awaitAdapterReady(_ client: any BLEClient) async throws {
         try await withTimeout(adapterTimeout, what: "어댑터 ready") {
             for await state in client.adapterStates {
                 switch state {
@@ -81,7 +81,7 @@ enum DeviceBackend {
     }
 
     /// 광고 중인 시험 기기를 찾는다. 앞 시나리오의 링크가 아직 남아 있으면 광고가 다시 시작될 때까지 기다린다.
-    private static func discover(_ client: BLEClient, profile: PeripheralProfile) async throws -> PeripheralID {
+    private static func discover(_ client: any BLEClient, profile: PeripheralProfile) async throws -> PeripheralID {
         let advertised = profile.services.values.filter(\.advertised).compactMap { BLEUUID(string: $0.uuid) }
         let request = ScanRequest(filter: NucodeBleCore.ScanFilter(serviceUUIDs: advertised))
         let results = client.scanResults

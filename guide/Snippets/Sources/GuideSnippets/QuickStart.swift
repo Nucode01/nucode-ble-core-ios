@@ -53,7 +53,7 @@ func waitUntilReady(_ session: any BLESession, timeout: Duration = .seconds(30))
 func quickStart() async throws {
     // region guide:quick-start
     // 1. 앱당 하나 만들고 앱 수명 동안 둔다
-    let client = BLEClient()
+    let client = BLEClientFactory.make()
     client.start() // 이때 CBCentralManager 가 만들어지고 권한 팝업이 뜬다
 
     // 2. 스캔: 결과 스트림을 먼저 얻고 시작한다

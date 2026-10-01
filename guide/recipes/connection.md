@@ -7,7 +7,7 @@
 <!-- snippet: auto-reconnect -->
 ```swift
 /// 끊겨도 다시 붙는 연결. autoReconnect 연결에는 링크 기한이 없어 기기가 멀리 있으면 무한히 기다린다
-func keepConnected(_ client: BLEClient, _ id: PeripheralID) async throws -> any BLESession {
+func keepConnected(_ client: any BLEClient, _ id: PeripheralID) async throws -> any BLESession {
     let session = try await client.connect(id, options: ConnectOptions(autoReconnect: true))
     do {
         try await waitUntilReady(session, timeout: .seconds(60)) // 첫 연결의 기한은 앱이 정한다
@@ -89,7 +89,7 @@ func watchConnection(_ session: any BLESession, giveUpAfter limit: Duration = .s
 <!-- snippet: multi-device -->
 ```swift
 /// 기기마다 세션이 따로 있고 GATT 작업 줄도 따로다. 한 기기의 느린 작업이 다른 기기를 막지 않는다
-func connectAll(_ client: BLEClient, _ ids: [PeripheralID]) async -> [PeripheralID: Result<any BLESession, any Error>] {
+func connectAll(_ client: any BLEClient, _ ids: [PeripheralID]) async -> [PeripheralID: Result<any BLESession, any Error>] {
     await withTaskGroup(of: (PeripheralID, Result<any BLESession, any Error>).self) { group in
         for id in ids {
             group.addTask {

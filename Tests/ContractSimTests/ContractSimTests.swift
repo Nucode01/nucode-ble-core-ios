@@ -57,7 +57,7 @@ enum SimContract {
         let spec = try FakeDeviceSpec(profile: scenario.peripheral)
         let clock = ScaledClock(scale: scale)
         let central = runOnCore { FakeCentral(spec: spec, clock: clock) }
-        let client = BLEClient(environment: BLEEnvironment(hasBluetoothUsageDescription: true), clock: clock) { central }
+        let client = DefaultBLEClient(environment: BLEEnvironment(hasBluetoothUsageDescription: true), clock: clock) { central }
         client.start()
         let hooks = BackendHooks(
             deviceEvent: { event in

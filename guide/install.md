@@ -82,7 +82,7 @@ if CBManager.authorization == .notDetermined {
 ```swift
 import NucodeBleCore
 
-let client = BLEClient()
+let client = BLEClientFactory.make()
 client.start()
 for await state in client.adapterStates {
     print(state) // unknown → (팝업 허용 뒤) ready

@@ -51,7 +51,7 @@ func platformDetailExample(_ failure: BLEFailure) {
     // endregion
 }
 
-func eventsExample(_ client: BLEClient) -> Task<Void, Never> {
+func eventsExample(_ client: any BLEClient) -> Task<Void, Never> {
     // region guide:events
     // 모든 기기의 연결 전이 · 탐색 결과 · 구독 복원 실패 · 진단이 한 줄로 온다(로그·분석용)
     Task {
@@ -72,7 +72,7 @@ func eventsExample(_ client: BLEClient) -> Task<Void, Never> {
     // endregion
 }
 
-func snapshotExample(_ client: BLEClient) async {
+func snapshotExample(_ client: any BLEClient) async {
     // region guide:snapshot
     // 지금 상태를 한 번에 읽는다. 화면을 새로 열 때 스트림의 첫 값을 기다리지 않고 그릴 때 쓴다
     let snapshot = await client.snapshot()

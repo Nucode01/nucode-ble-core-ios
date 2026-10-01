@@ -27,8 +27,8 @@ enum ClientTestSupport {
         environment: BLEEnvironment = ClientTestSupport.environment,
         options: BLEOptions = BLEOptions(),
         central: @escaping @BLECoreActor @Sendable () -> any CentralPort
-    ) -> BLEClient {
-        BLEClient(options: options, environment: environment, clock: ScaledClock(scale: scale), centralFactory: central)
+    ) -> DefaultBLEClient {
+        DefaultBLEClient(options: options, environment: environment, clock: ScaledClock(scale: scale), centralFactory: central)
     }
 
     static func sleep(realMilliseconds: Int) async {

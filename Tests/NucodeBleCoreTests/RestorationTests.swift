@@ -251,7 +251,7 @@ final class RestorationTests: XCTestCase {
     // MARK: 같은 연결 경로
 
     func testRegisterAndConnectAfterStartMakeTheSameTransitions() async throws {
-        func transitions(_ body: (BLEClient) async throws -> Void) async throws -> [String] {
+        func transitions(_ body: (DefaultBLEClient) async throws -> Void) async throws -> [String] {
             let central = try makeCentral()
             let client = Support.makeClient { central }
             let stream = client.events

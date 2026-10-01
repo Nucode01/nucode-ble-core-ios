@@ -8,10 +8,10 @@
 @MainActor
 final class BLEContainer {
     static let shared = BLEContainer()
-    let client: BLEClient
+    let client: any BLEClient
 
     private init() {
-        client = BLEClient()
+        client = BLEClientFactory.make()
         client.start()
     }
 }
@@ -35,11 +35,11 @@ final class DeviceModel {
     private(set) var lastMessage: String = ""
     private(set) var errorText: String?
 
-    private let client: BLEClient
+    private let client: any BLEClient
     private let id: PeripheralID
     private var tasks: [Task<Void, Never>] = []
 
-    init(client: BLEClient, id: PeripheralID) {
+    init(client: any BLEClient, id: PeripheralID) {
         self.client = client
         self.id = id
     }
@@ -135,7 +135,7 @@ struct DeviceView: View {
 /// 상태 복원을 쓰는 앱의 시작 코드. 시스템이 앱을 백그라운드에서 다시 실행하면 화면 없이 이 함수만 불린다.
 /// 그래서 client 생성 · 등록 · start 는 화면(onAppear)이 아니라 여기서 한다
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    let ble = BLEClient(options: BLEOptions(restoreIdentifier: "com.example.app.ble"))
+    let ble = BLEClientFactory.make(options: BLEOptions(restoreIdentifier: "com.example.app.ble"))
 
     func application(
         _ application: UIApplication,
@@ -206,6 +206,199 @@ struct RestorationApp: App {
    xcrun devicectl device process signal --device <기기 UDID> --signal SIGKILL --pid <pid>
    ```
 3. 기기가 알림을 보내게 합니다. 수 초 안에 iOS 가 앱을 백그라운드로 다시 실행하고, 핸들러에 알림이 와야 합니다.
+
+## 시험에서 client 바꿔 끼우기
+
+`BLEClient` 는 프로토콜입니다. 구현 클래스는 패키지 밖에서 보이지 않고, 앱은 `BLEClientFactory.make()` 로만 client 를 얻습니다.
+client 를 init 으로 받게 만들면 시험에서 가짜를 넘길 수 있습니다.
+
+<!-- snippet: inject-client -->
+```swift
+/// client 를 init 으로 받는 앱 객체. 앱은 `BLEClientFactory.make()` 를, 시험은 가짜를 넘긴다
+@MainActor
+final class AdapterBanner {
+    private(set) var text = ""
+    private let client: any BLEClient
+    private var task: Task<Void, Never>?
+
+    init(client: any BLEClient) {
+        self.client = client
+    }
+
+    func begin() {
+        let states = client.adapterStates
+        task = Task { [weak self] in
+            for await state in states {
+                self?.text = state == .ready ? "" : "블루투스를 켜 주세요"
+            }
+        }
+    }
+
+    func end() { task?.cancel() }
+}
+
+// 앱: AdapterBanner(client: BLEClientFactory.make())
+// 시험: AdapterBanner(client: FakeClient(session: { id in MyFakeSession(id) }))
+```
+
+가짜는 라이브러리와 같은 규칙을 지켜야 시험이 실제 동작을 대신합니다.
+
+- 상태 스트림(`adapterStates` · `scanStates` · `connectionStates` · `services` · `activeSubscriptions`)은 구독하면 현재 값을 먼저 줍니다.
+- 이벤트 스트림(`scanResults` · `events` · `notifications`)은 구독 뒤에 생긴 값만 줍니다.
+- `connect` 는 연결 시도가 시작되면 반환합니다. Ready 는 상태 스트림으로 알립니다.
+- `register` · `registerScan` · `onNotification` 은 `start()` 전에만 부를 수 있습니다.
+- `close()` 는 모든 스트림을 끝내고, 그 뒤의 명령은 `CLIENT_CLOSED` 를 던집니다. `session(for:)` 는 닫힌 뒤에만 던지고 어떤 ID 에도 세션을 줍니다.
+- 상태를 바꾸는 일과 새 구독자에게 현재 값을 주는 일은 한 lock 안에서 합니다(아래 `FakeStream`). 밖에서 하면 다른 스레드의 변경과 순서가 뒤집혀 마지막 값이 틀립니다.
+  단 스트림을 끝내는 `finish()` 는 lock **밖**에서 부릅니다. `finish()` 가 같은 스레드에서 `onTermination` 을 부르고, 그 안에서 같은 lock 을 잡으면 교착합니다.
+
+`BLESession` 도 프로토콜이라 세션도 같은 방법으로 가짜를 만들어 `FakeClient(session:)` 로 넘깁니다. 상태 스트림은 `FakeStream(replaying:)`, 알림은 `FakeStream()` 으로 만들면 됩니다.
+스트림 규칙(현재 값 먼저 · replay 없음 · close 로 끝남, 교착 없음)과 close 뒤 상태 고정은 `guide/Snippets` 의 `swift test`(`FakeClientTests`)가 실제로 돌려서 확인합니다. `connect` · `startScan` · `register` 규칙은 시험하지 않습니다.
+
+<!-- snippet: fake-client -->
+```swift
+/// 구독자에게 값을 나르는 작은 도우미. `replaying:` 을 주면 상태 스트림(구독하자마자 현재 값을 먼저 준다), 안 주면 이벤트 스트림(구독 뒤 값만)
+final class FakeStream<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private let replays: Bool
+    private var current: Value?
+    private var sinks: [UUID: AsyncStream<Value>.Continuation] = [:]
+    private var closed = false
+
+    /// 상태 스트림
+    init(replaying initial: Value) {
+        replays = true
+        current = initial
+    }
+
+    /// 이벤트 스트림
+    init() {
+        replays = false
+    }
+
+    var value: Value? { lock.withLock { current } }
+
+    func subscribe() -> AsyncStream<Value> {
+        AsyncStream { continuation in
+            let key = UUID()
+            let finishNow = lock.withLock { () -> Bool in
+                // 현재 값과 등록을 한 lock 안에서 해야 send 와 순서가 뒤집히지 않는다
+                if replays, let current { continuation.yield(current) }
+                if closed { return true }
+                sinks[key] = continuation
+                return false
+            }
+            if finishNow { continuation.finish(); return }
+            continuation.onTermination = { [weak self] _ in self?.lock.withLock { _ = self?.sinks.removeValue(forKey: key) } }
+        }
+    }
+
+    /// 닫힌 뒤에는 무시한다
+    func send(_ value: Value) {
+        lock.withLock {
+            guard !closed else { return }
+            if replays { current = value }
+            sinks.values.forEach { $0.yield(value) }
+        }
+    }
+
+    /// finish() 는 onTermination 을 같은 스레드에서 부르므로 lock 밖에서 한다(안에서 하면 교착)
+    func finish() {
+        let closing = lock.withLock { () -> [AsyncStream<Value>.Continuation] in
+            closed = true
+            defer { sinks = [:] }
+            return Array(sinks.values)
+        }
+        closing.forEach { $0.finish() }
+    }
+}
+
+/// 시험용 가짜 client. 라이브러리 계약을 따른다: 상태 스트림은 현재 값 먼저, 이벤트 스트림은 구독 뒤 값만,
+/// close() 는 모든 스트림을 끝내고 이후 명령은 CLIENT_CLOSED, register 류는 start() 전에만.
+/// 세션은 시험이 BLESession 을 구현한 가짜로 넘긴다(connect 는 시도 시작에서 반환하고 Ready 는 connectionStates 로 알린다)
+final class FakeClient: BLEClient, @unchecked Sendable {
+    let adapter = FakeStream<AdapterState>(replaying: .unknown)
+    let scan = FakeStream<ScanState>(replaying: .idle)
+    let results = FakeStream<ScanResult>()
+    let eventLog = FakeStream<BLEEvent>()
+
+    private let lock = NSLock()
+    private var started = false
+    private var closed = false
+    private let makeSession: @Sendable (PeripheralID) -> any BLESession
+
+    init(session makeSession: @escaping @Sendable (PeripheralID) -> any BLESession) {
+        self.makeSession = makeSession
+    }
+
+    var adapterStates: AsyncStream<AdapterState> { adapter.subscribe() }
+    var scanStates: AsyncStream<ScanState> { scan.subscribe() }
+    var scanResults: AsyncStream<ScanResult> { results.subscribe() }
+    var events: AsyncStream<BLEEvent> { eventLog.subscribe() }
+
+    func register(_ peripheralID: PeripheralID, options: ConnectOptions, subscribe: [CharacteristicRef]) {
+        precondition(!lock.withLock { started }, "register 는 start() 전에만")
+    }
+
+    func registerScan(_ request: ScanRequest) {
+        precondition(!lock.withLock { started }, "registerScan 은 start() 전에만")
+    }
+
+    func onNotification(queue: DispatchQueue, _ handler: @escaping @Sendable (PeripheralID, CharacteristicRef, Data) -> Void) {
+        precondition(!lock.withLock { started }, "onNotification 은 start() 전에만")
+    }
+
+    /// 라이브러리처럼 닫힌 뒤에는 아무것도 하지 않는다
+    func start() {
+        guard lock.withLock({ () -> Bool in
+            guard !closed else { return false }
+            started = true
+            return true
+        }) else { return }
+        adapter.send(.ready)
+    }
+
+    /// 실제는 어댑터가 unknown 이면 최대 2초 판정을 기다린다. 가짜는 ready 가 아니면 바로 거절한다
+    func startScan(request: ScanRequest) async throws {
+        try throwIfClosed()
+        guard adapter.value == .ready else {
+            throw BLEError(failure: BLEFailure(code: .adapterUnavailable, message: "fake: adapter not ready"))
+        }
+        scan.send(.scanning)
+    }
+
+    func stopScan() async {
+        scan.send(.idle)
+    }
+
+    /// 실제처럼 닫힌 뒤에만 던진다. 어떤 ID 에도 세션을 준다
+    func session(for peripheralID: PeripheralID) throws -> any BLESession {
+        try throwIfClosed()
+        return makeSession(peripheralID)
+    }
+
+    func connect(_ peripheralID: PeripheralID, options: ConnectOptions) async throws -> any BLESession {
+        let session = try session(for: peripheralID)
+        try await session.connect(options: options)
+        return session
+    }
+
+    func snapshot() async -> ClientSnapshot {
+        let scanning = if case .scanning = scan.value { true } else { false }
+        return ClientSnapshot(adapter: adapter.value ?? .unknown, scanning: scanning, sessions: [])
+    }
+
+    func close() {
+        lock.withLock { closed = true }
+        [adapter.finish, scan.finish, results.finish, eventLog.finish].forEach { $0() }
+    }
+
+    private func throwIfClosed() throws {
+        if lock.withLock({ closed }) {
+            throw BLEError(failure: BLEFailure(code: .clientClosed, message: "fake: closed"))
+        }
+    }
+}
+```
 
 ## `close()`
 
