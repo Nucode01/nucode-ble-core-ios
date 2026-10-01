@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.2.2)
+## 0.2.2 (2026-10-01)
 
 공개 API 는 0.2.0 과 같다(`swift package diagnose-api-breaking-changes 0.2.0`). 실패 코드 값의 뜻이 바뀐다.
 
@@ -15,6 +15,10 @@
   - `NOT_CONNECTED` 로 분기하던 앱은 `NOT_READY`(연결 문제)와 `ADAPTER_UNAVAILABLE`(환경)로 옮긴다. `NOT_CONNECTED` 는 진입 검사에서 더 나지 않는다.
   - unsubscribe 는 그대로다(닫힘만 거절하고 의도를 먼저 지우는 best-effort).
 - `Samples/ManualTest` 점검 2 는 꺼진 채 read 도 `ADAPTER_UNAVAILABLE` 만 통과로 본다.
+
+### Documentation
+
+- `guide/`: 개발자 가이드(설치·개념·레시피·문제 해결). 예시는 `guide/Snippets` 패키지로 컴파일을 확인하고 `guide/check_snippets.py` 로 문서와 대조한다.
 
 ## 0.2.1 (2026-09-30)
 

@@ -4,7 +4,7 @@
 
 저장소는 비공개입니다. Xcode(또는 CI)의 GitHub 계정에 `pdev-jay/nucode-ble-core-ios` 읽기 권한이 있어야 합니다.
 
-**Xcode 앱 프로젝트:** File › Add Package Dependencies… 에서 아래 URL 을 넣고, Dependency Rule 은 `Up to Next Minor Version` 에 `0.2.1` 을 줍니다.
+**Xcode 앱 프로젝트:** File › Add Package Dependencies… 에서 아래 URL 을 넣고, Dependency Rule 은 `Up to Next Minor Version` 에 `0.2.2` 을 줍니다.
 product `NucodeBleCore` 를 앱 target 에 추가합니다.
 
 ```text
@@ -16,7 +16,7 @@ https://github.com/pdev-jay/nucode-ble-core-ios.git
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/pdev-jay/nucode-ble-core-ios.git", .upToNextMinor(from: "0.2.1")),
+    .package(url: "https://github.com/pdev-jay/nucode-ble-core-ios.git", .upToNextMinor(from: "0.2.2")),
 ],
 targets: [
     .target(name: "MyFeature", dependencies: [.product(name: "NucodeBleCore", package: "nucode-ble-core-ios")]),
