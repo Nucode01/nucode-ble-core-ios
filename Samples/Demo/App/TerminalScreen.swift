@@ -27,6 +27,9 @@ struct TerminalScreen: View {
                     Button("기록 지우기", role: .destructive) {
                         controller.clear()
                     }
+                    NavigationLink(destination: EventLogScreen()) {
+                        Label("이벤트 로그", systemImage: "list.bullet.rectangle")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }

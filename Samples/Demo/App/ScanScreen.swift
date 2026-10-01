@@ -56,6 +56,13 @@ struct ScanScreen: View {
             }
         }
         .navigationTitle("BLE 데모")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(destination: EventLogScreen()) {
+                    Label("이벤트", systemImage: "list.bullet.rectangle")
+                }
+            }
+        }
         .navigationDestination(for: DeviceTarget.self) { target in
             if let terminal = controller.terminal(for: target) {
                 TerminalScreen(controller: terminal)

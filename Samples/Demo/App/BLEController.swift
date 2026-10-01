@@ -16,6 +16,13 @@ struct DiscoveredDevice: Identifiable {
     var advertisesNUS: Bool
 }
 
+/// 이벤트 로그 한 줄
+struct EventEntry: Identifiable {
+    let id: Int
+    let time: Date
+    let text: String
+}
+
 /// 앱 수명 동안 `BLEClient` 를 소유한다. 앱에서 `BLEClient(` 를 부르는 곳은 여기뿐이다
 @MainActor
 @Observable
@@ -29,11 +36,15 @@ final class BLEController {
     private(set) var devices: [DiscoveredDevice] = []
     var nusOnly = true
     private(set) var recent: DeviceTarget?
+    /// `client.events` 를 받은 순서대로. 오래된 것부터 버린다
+    private(set) var events: [EventEntry] = []
 
     @ObservationIgnored private var started = false
     @ObservationIgnored private var adapterTask: Task<Void, Never>?
     @ObservationIgnored private var scanStateTask: Task<Void, Never>?
     @ObservationIgnored private var scanResultTask: Task<Void, Never>?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var nextEventID = 0
     @ObservationIgnored private var autoStopTask: Task<Void, Never>?
     @ObservationIgnored private var found: [PeripheralID: DiscoveredDevice] = [:]
     @ObservationIgnored private var terminals: [PeripheralID: TerminalController] = [:]
@@ -41,6 +52,7 @@ final class BLEController {
     private static let recentIDKey = "demo.recent.id"
     private static let recentNameKey = "demo.recent.name"
     private static let scanDuration: Duration = .seconds(15)
+    private static let eventCap = 1000
 
     init() {
         client = BLEClient()
@@ -72,7 +84,17 @@ final class BLEController {
                 self?.upsert(result)
             }
         }
+        let events = client.events
+        eventTask = Task { [weak self] in
+            for await event in events {
+                self?.append(event)
+            }
+        }
         client.start()
+    }
+
+    func clearEvents() {
+        events = []
     }
 
     func startScan() async {
@@ -147,6 +169,29 @@ final class BLEController {
         device.advertisesNUS = device.advertisesNUS || ad.serviceUUIDs.contains(NUS.service.uuid)
         found[result.peripheralID] = device
         devices = found.values.sorted { $0.rssi > $1.rssi }
+    }
+
+    private func append(_ event: BLEEvent) {
+        let text: String
+        switch event {
+        case .connection(let id, let state):
+            text = "[link] \(Self.short(id)) \(String(describing: state))"
+        case .services(let id, let services):
+            text = "[gatt] \(Self.short(id)) services=\(services.count)"
+        case .subscriptionRestoreFailed(let id, let ref, let failure):
+            text = "[gatt] \(Self.short(id)) restore \(ref.uuid) failed \(failure.code.value)"
+        case .diagnostic(let code, let message):
+            text = "[diag] \(code.value) \(message)"
+        }
+        events.append(EventEntry(id: nextEventID, time: Date(), text: text))
+        nextEventID += 1
+        if events.count > Self.eventCap {
+            events.removeFirst(events.count - Self.eventCap)
+        }
+    }
+
+    private static func short(_ id: PeripheralID) -> String {
+        String(id.rawValue.prefix(8))
     }
 
     private static func ms(_ duration: Duration) -> Int {
