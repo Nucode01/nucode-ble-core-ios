@@ -36,6 +36,7 @@ final class BLEController {
     @ObservationIgnored private var scanResultTask: Task<Void, Never>?
     @ObservationIgnored private var autoStopTask: Task<Void, Never>?
     @ObservationIgnored private var found: [PeripheralID: DiscoveredDevice] = [:]
+    @ObservationIgnored private var terminals: [PeripheralID: TerminalController] = [:]
 
     private static let recentIDKey = "demo.recent.id"
     private static let recentNameKey = "demo.recent.name"
@@ -112,6 +113,17 @@ final class BLEController {
         defaults.set(target.id.rawValue, forKey: Self.recentIDKey)
         defaults.set(target.name, forKey: Self.recentNameKey)
         recent = target
+    }
+
+    /// 기기별 터미널. 한 번 만든 것은 다시 쓴다(세션 관찰과 기록 유지). 세션을 열 수 없으면 nil
+    func terminal(for target: DeviceTarget) -> TerminalController? {
+        if let terminal = terminals[target.id] { return terminal }
+        guard let session = try? client.session(for: target.id) else { return nil }
+        let terminal = TerminalController(target: target, session: session) { [weak self] in
+            self?.remember($0)
+        }
+        terminals[target.id] = terminal
+        return terminal
     }
 
     private func apply(_ state: ScanState) {

@@ -56,9 +56,12 @@ struct ScanScreen: View {
             }
         }
         .navigationTitle("BLE 데모")
-        // PLACEHOLDER: task 3 에서 터미널 화면으로 바꾼다
         .navigationDestination(for: DeviceTarget.self) { target in
-            Text(target.name ?? target.id.rawValue)
+            if let terminal = controller.terminal(for: target) {
+                TerminalScreen(controller: terminal)
+            } else {
+                Text("세션을 열 수 없습니다")
+            }
         }
     }
 }
