@@ -9,3 +9,6 @@ nucode-ble-core-root/
 DeviceTests/Contract/*
 !DeviceTests/Contract/.gitkeep
 DeviceTests/build/
+
+# jay-flow 작업 계획
+.plans/

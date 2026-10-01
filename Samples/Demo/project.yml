@@ -1,0 +1,57 @@
+# NucodeBleCore 데모 앱(NUS 터미널). 생성: xcodegen generate   빌드·설치: README.md
+# 라이브러리는 실제 소비자처럼 SPM URL 의 태그로 받는다(로컬 소스가 아니다)
+name: BLEDemo
+options:
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: MC4R3V2C33
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+packages:
+  NucodeBleCore:
+    url: https://github.com/pdev-jay/nucode-ble-core-ios.git
+    from: "0.2.2"
+targets:
+  BLEDemo:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: NucodeBleCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: BLE 데모
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        NSBluetoothAlwaysUsageDescription: 주변 BLE 기기와 텍스트를 주고받으려고 블루투스를 사용합니다.
+        # 백그라운드에서도 연결·자동 재연결·알림 수신을 유지한다(상태 복원은 쓰지 않는다)
+        UIBackgroundModes: [bluetooth-central]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.ble.Demo
+        TARGETED_DEVICE_FAMILY: "1"
+  BLEDemoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: BLEDemo
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.ble.DemoTests
+schemes:
+  BLEDemo:
+    build:
+      targets:
+        BLEDemo: all
+    test:
+      targets: [BLEDemoTests]
