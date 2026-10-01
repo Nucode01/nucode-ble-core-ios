@@ -107,9 +107,9 @@ final class BLEController {
         let begin = clock.now
         do {
             try await client.startScan(request: ScanRequest(filter: filter))
-            boundaryLog(op: "startScan", target: nil, result: "ok", ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "startScan", target: nil, result: "ok", ms: milliseconds(clock.now - begin))
         } catch {
-            boundaryLog(op: "startScan", target: nil, result: Self.code(error), ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "startScan", target: nil, result: failureCode(error), ms: milliseconds(clock.now - begin))
             scanError = userMessage(for: error)
             return
         }
@@ -126,7 +126,7 @@ final class BLEController {
         let clock = ContinuousClock()
         let begin = clock.now
         await client.stopScan()
-        boundaryLog(op: "stopScan", target: nil, result: "ok", ms: Self.ms(clock.now - begin))
+        boundaryLog(op: "stopScan", target: nil, result: "ok", ms: milliseconds(clock.now - begin))
     }
 
     /// 연결한 기기를 기억한다. 다음 실행에서 "최근 기기" 로 보인다
@@ -192,13 +192,5 @@ final class BLEController {
 
     private static func short(_ id: PeripheralID) -> String {
         String(id.rawValue.prefix(8))
-    }
-
-    private static func ms(_ duration: Duration) -> Int {
-        Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
-    }
-
-    private static func code(_ error: any Error) -> String {
-        (error as? BLEError).map { String(describing: $0.failure.code.value) } ?? String(describing: type(of: error))
     }
 }

@@ -75,9 +75,9 @@ final class TerminalController {
         var begin = clock.now
         do {
             try await session.connect(options: ConnectOptions(autoReconnect: autoReconnect))
-            boundaryLog(op: "connect", target: target.id, result: "ok", ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "connect", target: target.id, result: "ok", ms: milliseconds(clock.now - begin))
         } catch {
-            boundaryLog(op: "connect", target: target.id, result: Self.code(error), ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "connect", target: target.id, result: failureCode(error), ms: milliseconds(clock.now - begin))
             append(.error, userMessage(for: error))
             return
         }
@@ -95,9 +95,9 @@ final class TerminalController {
         begin = clock.now
         do {
             try await session.subscribe(NUS.tx)
-            boundaryLog(op: "subscribe", target: target.id, result: "ok", ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "subscribe", target: target.id, result: "ok", ms: milliseconds(clock.now - begin))
         } catch {
-            boundaryLog(op: "subscribe", target: target.id, result: Self.code(error), ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "subscribe", target: target.id, result: failureCode(error), ms: milliseconds(clock.now - begin))
             append(.error, userMessage(for: error))
             return
         }
@@ -108,7 +108,7 @@ final class TerminalController {
         let clock = ContinuousClock()
         let begin = clock.now
         await session.disconnect()
-        boundaryLog(op: "disconnect", target: target.id, result: "ok", ms: Self.ms(clock.now - begin))
+        boundaryLog(op: "disconnect", target: target.id, result: "ok", ms: milliseconds(clock.now - begin))
     }
 
     func send(_ text: String) async {
@@ -119,10 +119,10 @@ final class TerminalController {
         let begin = clock.now
         do {
             _ = try await session.write(NUS.rx, value: payload, options: WriteOptions(mode: mode))
-            boundaryLog(op: "write", target: target.id, result: "ok", ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "write", target: target.id, result: "ok", ms: milliseconds(clock.now - begin))
             append(.sent, withoutResponse ? "\(text) (응답 없음)" : text)
         } catch {
-            boundaryLog(op: "write", target: target.id, result: Self.code(error), ms: Self.ms(clock.now - begin))
+            boundaryLog(op: "write", target: target.id, result: failureCode(error), ms: milliseconds(clock.now - begin))
             append(.error, userMessage(for: error))
         }
     }
@@ -178,13 +178,5 @@ final class TerminalController {
             lastLabel = label
             append(.system, label)
         }
-    }
-
-    private static func ms(_ duration: Duration) -> Int {
-        Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
-    }
-
-    private static func code(_ error: any Error) -> String {
-        (error as? BLEError).map { String(describing: $0.failure.code.value) } ?? String(describing: type(of: error))
     }
 }

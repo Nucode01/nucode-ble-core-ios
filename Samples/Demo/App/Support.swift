@@ -87,3 +87,13 @@ func boundaryLog(op: String, target: PeripheralID?, result: String, ms: Int) {
     let id = target.map { String($0.rawValue.prefix(8)) } ?? "-"
     boundaryLogger.info("op=\(op, privacy: .public) target=\(id, privacy: .public) result=\(result, privacy: .public) ms=\(ms)")
 }
+
+/// 경계 로그의 소요 시간(밀리초)
+func milliseconds(_ duration: Duration) -> Int {
+    Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
+}
+
+/// 경계 로그의 결과 값: 라이브러리 실패면 코드, 아니면 오류 타입 이름
+func failureCode(_ error: any Error) -> String {
+    (error as? BLEError).map { $0.failure.code.value } ?? String(describing: type(of: error))
+}
