@@ -14,7 +14,7 @@ struct DemoApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                Text("BLE 데모")
+                ScanScreen()
             }
             .environment(controller)
         }
