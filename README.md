@@ -3,6 +3,9 @@
 nucode BLE core 의 iOS 구현 저장소다. 설계 정본과 계약(`contract/`)은 루트 저장소
 [pdev-jay/nucode-ble-core](https://github.com/pdev-jay/nucode-ble-core)에 있다.
 
+> **라이브러리를 쓰려면 [개발자 가이드](guide/README.md)부터 보세요.** 설치 · 스캔 · 연결 · 읽기/쓰기/구독 · 실패 처리 · SwiftUI 연동 · 상태 복원을 예시 코드와 함께 다룹니다.
+> 가이드의 예시는 `guide/Snippets` 패키지로 컴파일을 확인하고 `python3 guide/check_snippets.py` 로 문서와 대조한다.
+
 ## 구성
 
 `Package.swift` 의 product 는 `NucodeBleCore` 하나다. iOS 17 / macOS 14 이상, Swift 6 언어 모드.
