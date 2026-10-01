@@ -3,7 +3,7 @@
 NucodeBleCore 를 일반 앱처럼 쓰는 SwiftUI 데모입니다. 주변 기기를 스캔해 고르고, Nordic UART Service(NUS)로 텍스트를 주고받습니다.
 연결 상태 · 자동 재연결 · 블루투스 끄고 켜기 · 실패 문구 · 라이브러리 이벤트 로그를 한 화면에서 볼 수 있습니다.
 
-라이브러리는 **실제 소비자처럼 SPM URL 의 태그**(`https://github.com/pdev-jay/nucode-ble-core-ios.git`, `from: 0.2.2`)로 받습니다.
+라이브러리는 **실제 소비자처럼 SPM URL 의 태그**(`https://github.com/pdev-jay/nucode-ble-core-ios.git`, `exactVersion: 0.2.2`)로 받습니다. 검증할 태그 하나로만 빌드하려고 고정합니다(앱에는 [설치 안내](../../guide/install.md)의 `upToNextMinor` 를 권합니다).
 이 저장소의 소스를 고쳐도 데모에는 새 태그를 받기 전까지 반영되지 않습니다.
 
 ## 구조

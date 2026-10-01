@@ -13,7 +13,7 @@ settings:
 packages:
   NucodeBleCore:
     url: https://github.com/pdev-jay/nucode-ble-core-ios.git
-    from: "0.2.2"
+    exactVersion: "0.2.2"
 targets:
   BLEDemo:
     type: application
