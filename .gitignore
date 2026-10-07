@@ -12,3 +12,6 @@ DeviceTests/build/
 
 # jay-flow 작업 계획
 .plans/
+
+# LLM 용 로컬 API 요약 (공유하지 않음, android 와 같음)
+guide/llms-ios.md
