@@ -1,5 +1,5 @@
 @testable import BleContract
-import BleContractBackend
+@testable import BleContractBackend
 import BleCoreFakes
 import NucodeBleCore
 import Testing

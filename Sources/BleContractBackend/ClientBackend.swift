@@ -242,7 +242,7 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
 
     /// 공개 properties → 기기 정의 어휘(`properties` 레인). API 의 `writeWithResponse` 는 계약의 `write` 다.
     /// fake 의 반대 방향 변환(`FakeCharacteristicSpec.vocabulary`)과 같은 사례로 시험한다
-    package static func contractName(_ property: CharacteristicProperty) -> String {
+    static func contractName(_ property: CharacteristicProperty) -> String {
         switch property {
         case .read: "read"
         case .writeWithResponse: "write"
