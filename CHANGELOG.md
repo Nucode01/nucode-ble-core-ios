@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased (0.3.0)
+## 0.3.0 (2026-10-12)
 
 ### Breaking changes
 
 - `BLEClient` 가 클래스에서 protocol(`public protocol BLEClient: AnyObject, Sendable`)로 바뀌었다. 계약 문서 api-contract §BLEClient 와 Android `BleClient` 와 같은 모양이다.
   - 생성은 `BLEClientFactory.make(options:)` 로 하고, 보관 타입은 `any BLEClient` 다. 구현 클래스(`DefaultBLEClient`)는 공개하지 않는다.
   - 같은 복원 identifier 로 프로세스 안에서 두 번 만들면 trap 하는 것은 이전과 같다(이제 factory 가 점유한다).
-  - 동작은 같다(`swift test`, 계약 시나리오 sim 39개 PASS). 실기기 계약 실행은 태그 전에 한다.
+  - 동작은 같다(`swift test`, 계약 시나리오 sim 39개 PASS). d4aaf8e 뒤 iPhone XR 실기기 계약 실행에서 시나리오 24개가 모두 PASS 했다.
 
 ```swift
 // 이전
