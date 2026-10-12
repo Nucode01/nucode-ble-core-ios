@@ -95,11 +95,17 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
                 }
             },
             Task { [symbols] in
+                // services·properties 레인은 같은 원천에서 같은 characteristic 을 고른다
                 for await list in streams.services {
-                    let found = list.flatMap { service in
-                        service.characteristics.compactMap { symbols[Key(service: service.ref.uuid, characteristic: $0.ref.uuid)] }
+                    var found: [String: Set<String>] = [:]
+                    for service in list {
+                        for characteristic in service.characteristics {
+                            guard let symbol = symbols[Key(service: service.ref.uuid, characteristic: characteristic.ref.uuid)] else { continue }
+                            found[symbol, default: []].formUnion(characteristic.properties.map(Self.contractName))
+                        }
                     }
-                    observer.services(found)
+                    observer.services(found.keys)
+                    observer.properties(found)
                 }
             },
             Task { [symbols] in
@@ -231,6 +237,18 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
             return .ok
         } catch let error as BLEError {
             return .failed(code: error.failure.code.value)
+        }
+    }
+
+    /// 공개 properties → 기기 정의 어휘(`properties` 레인). API 의 `writeWithResponse` 는 계약의 `write` 다.
+    /// fake 의 반대 방향 변환(`FakeCharacteristicSpec.vocabulary`)과 같은 사례로 시험한다
+    package static func contractName(_ property: CharacteristicProperty) -> String {
+        switch property {
+        case .read: "read"
+        case .writeWithResponse: "write"
+        case .writeWithoutResponse: "writeWithoutResponse"
+        case .notify: "notify"
+        case .indicate: "indicate"
         }
     }
 

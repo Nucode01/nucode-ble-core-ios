@@ -57,7 +57,7 @@ private final class ScriptedPeripheral: PeripheralPort {
     var linked = false
 
     var services: [NucodeBleCore.ServiceRef] = []
-    var characteristics: [CharacteristicRef] = []
+    var characteristics: [DiscoveredCharacteristic] = []
     var serviceError: PortError?
     var answersDiscovery = true
     private(set) var discoverArguments: [[BLEUUID]?] = []
@@ -70,7 +70,7 @@ private final class ScriptedPeripheral: PeripheralPort {
 
     func discoverCharacteristics(_ characteristicUUIDs: [BLEUUID]?, for service: NucodeBleCore.ServiceRef) {
         fakeEmit(self) { device in
-            let mine = device.characteristics.filter { $0.service == service }
+            let mine = device.characteristics.filter { $0.ref.service == service }
             device.delegate?.peripheral(device, didDiscoverCharacteristics: mine, for: service, error: nil)
         }
     }
@@ -125,8 +125,13 @@ final class LinkSetupTests: XCTestCase {
         let peripheral = ScriptedPeripheral()
         let service = NucodeBleCore.ServiceRef(uuid: serviceUUID, instanceIndex: 0)
         peripheral.services = [service]
-        peripheral.characteristics = (0..<characteristicCount).map { _ in
-            CharacteristicRef(service: service, uuid: characteristicUUID, instanceIndex: 0)
+        // 같은 참조를 여러 번 주되 properties 는 탐색 순서마다 다르게 둔다(순서대로 실리는지 본다)
+        let properties: [Set<CharacteristicProperty>] = [[.read, .writeWithResponse], [.notify], []]
+        peripheral.characteristics = (0..<characteristicCount).map { index in
+            DiscoveredCharacteristic(
+                ref: CharacteristicRef(service: service, uuid: characteristicUUID, instanceIndex: 0),
+                properties: properties[index % properties.count]
+            )
         }
         return ScriptedCentral(peripheral: peripheral)
     }
@@ -182,6 +187,8 @@ final class LinkSetupTests: XCTestCase {
         XCTAssertNil(central.peripheral.discoverArguments[0], "서비스를 고르지 않는다")
         let indexes = session.services.first?.characteristics.map(\.ref.instanceIndex)
         XCTAssertEqual(indexes, [0, 1])
+        XCTAssertEqual(session.services.first?.characteristics.map(\.properties), [[.read, .writeWithResponse], [.notify]],
+                       "포트가 준 properties 가 탐색 순서대로 GATTCharacteristic 에 실린다")
         client.close()
         var diagnostics: [String] = []
         for await event in events { if case .diagnostic(let code, _) = event { diagnostics.append(code.value) } }

@@ -76,7 +76,7 @@ package final class LinkSetup {
         for service in pending { peripheral.discoverCharacteristics(nil, for: service.portRef) }
     }
 
-    package func didDiscoverCharacteristics(_ characteristics: [CharacteristicRef], for service: ServiceRef, error: PortError?) {
+    package func didDiscoverCharacteristics(_ characteristics: [DiscoveredCharacteristic], for service: ServiceRef, error: PortError?) {
         guard onFinish != nil, listed else { return }
         guard let position = pending.firstIndex(where: { $0.portRef == service && $0.characteristics == nil }) else { return }
         if let error {
@@ -90,17 +90,17 @@ package final class LinkSetup {
     }
 
     /// 같은 UUID characteristic 은 탐색 순서대로 0, 1, … 을 받는다. 플랫폼이 준 참조끼리 같아 가릴 수 없었으면 진단을 남긴다
-    private func indexed(_ found: [CharacteristicRef], in service: ServiceRef) -> [GATTCharacteristic] {
-        if Set(found).count != found.count {
+    private func indexed(_ found: [DiscoveredCharacteristic], in service: ServiceRef) -> [GATTCharacteristic] {
+        if Set(found.map(\.ref)).count != found.count {
             diagnostic(.duplicateCharacteristicReference, "서비스 \(service.uuid) 의 characteristic 참조가 겹쳐 탐색 순서로 가른다")
         }
         var seen: [BLEUUID: Int] = [:]
         return found.map { item in
-            let index = seen[item.uuid, default: 0]
-            seen[item.uuid] = index + 1
-            let ref = CharacteristicRef(service: service, uuid: item.uuid, instanceIndex: index)
-            portRefs[ref] = item
-            return GATTCharacteristic(ref: ref)
+            let index = seen[item.ref.uuid, default: 0]
+            seen[item.ref.uuid] = index + 1
+            let ref = CharacteristicRef(service: service, uuid: item.ref.uuid, instanceIndex: index)
+            portRefs[ref] = item.ref
+            return GATTCharacteristic(ref: ref, properties: item.properties)
         }
     }
 

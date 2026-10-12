@@ -23,12 +23,23 @@ package enum PortPeripheralState: Sendable {
     case disconnecting
 }
 
+/// 탐색한 characteristic 하나. properties 는 플랫폼 값을 Driver 가 공개 타입으로 바꾼 것이다
+package struct DiscoveredCharacteristic: Sendable, Equatable {
+    package let ref: CharacteristicRef
+    package let properties: Set<CharacteristicProperty>
+
+    package init(ref: CharacteristicRef, properties: Set<CharacteristicProperty>) {
+        self.ref = ref
+        self.properties = properties
+    }
+}
+
 @BLECoreActor
 package protocol PeripheralPortDelegate: AnyObject {
     func peripheral(_ peripheral: any PeripheralPort, didDiscoverServices services: [ServiceRef], error: PortError?)
     func peripheral(
         _ peripheral: any PeripheralPort,
-        didDiscoverCharacteristics characteristics: [CharacteristicRef],
+        didDiscoverCharacteristics characteristics: [DiscoveredCharacteristic],
         for service: ServiceRef,
         error: PortError?
     )

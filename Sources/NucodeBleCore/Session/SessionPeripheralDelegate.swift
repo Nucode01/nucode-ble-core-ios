@@ -18,7 +18,7 @@ final class SessionPeripheralDelegate: PeripheralPortDelegate {
 
     func peripheral(
         _ peripheral: any PeripheralPort,
-        didDiscoverCharacteristics characteristics: [CharacteristicRef],
+        didDiscoverCharacteristics characteristics: [DiscoveredCharacteristic],
         for service: ServiceRef,
         error: PortError?
     ) {

@@ -79,7 +79,7 @@ final class RestoredPeripheralRelay: PeripheralPortDelegate {
     func peripheral(_ peripheral: any PeripheralPort, didDiscoverServices services: [ServiceRef], error: PortError?) {}
     func peripheral(
         _ peripheral: any PeripheralPort,
-        didDiscoverCharacteristics characteristics: [CharacteristicRef],
+        didDiscoverCharacteristics characteristics: [DiscoveredCharacteristic],
         for service: ServiceRef,
         error: PortError?
     ) {}

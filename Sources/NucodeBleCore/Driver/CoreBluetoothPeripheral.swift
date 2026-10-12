@@ -150,7 +150,11 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         BLECoreActor.assumeIsolated {
             guard let ref = serviceRefs[ObjectIdentifier(service)] else { return }
             refreshCharacteristics(of: service, ref: ref)
-            let found = (service.characteristics ?? []).compactMap { characteristicRefs[ObjectIdentifier($0)] }
+            let found = (service.characteristics ?? []).compactMap { item in
+                characteristicRefs[ObjectIdentifier(item)].map {
+                    DiscoveredCharacteristic(ref: $0, properties: CharacteristicPropertyConversion.properties(item.properties))
+                }
+            }
             delegate?.peripheral(self, didDiscoverCharacteristics: failure == nil ? found : [], for: ref, error: failure)
         }
     }

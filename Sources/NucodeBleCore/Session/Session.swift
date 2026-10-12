@@ -355,7 +355,7 @@ package final class Session {
     package func peripheralDidDiscoverCharacteristics(
         _ candidate: any PeripheralPort,
         generation: UInt64,
-        characteristics: [CharacteristicRef],
+        characteristics: [DiscoveredCharacteristic],
         for service: ServiceRef,
         error: PortError?
     ) {

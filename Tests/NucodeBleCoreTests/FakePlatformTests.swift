@@ -49,7 +49,7 @@ private final class Recorder: CentralPortDelegate, PeripheralPortDelegate {
 
     func peripheral(
         _ peripheral: any PeripheralPort,
-        didDiscoverCharacteristics characteristics: [CharacteristicRef],
+        didDiscoverCharacteristics characteristics: [DiscoveredCharacteristic],
         for service: NucodeBleCore.ServiceRef,
         error: PortError?
     ) {}

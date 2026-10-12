@@ -14,7 +14,22 @@ package struct FakeCharacteristicSpec: Sendable {
     package let symbol: String
     package let service: BLEUUID
     package let uuid: BLEUUID
+    /// 기기 정의 어휘(`read`·`write`·`writeWithoutResponse`·`notify`·`indicate`)
     package let properties: Set<String>
+
+    /// 기기 정의 어휘 → 공개 타입. 계약의 `write` 는 API 의 `writeWithResponse` 다. 러너의 반대 방향 변환과 같은 사례로 시험한다
+    package static let vocabulary: [String: CharacteristicProperty] = [
+        "read": .read,
+        "write": .writeWithResponse,
+        "writeWithoutResponse": .writeWithoutResponse,
+        "notify": .notify,
+        "indicate": .indicate,
+    ]
+
+    /// 탐색 콜백이 넘기는 공개 properties
+    package var characteristicProperties: Set<CharacteristicProperty> {
+        Set(properties.compactMap { Self.vocabulary[$0] })
+    }
 }
 
 /// 가짜 기기가 흉내 낼 기기. 기기 정의 파일(`contract/peripherals/<이름>.json`)에서 만든다.

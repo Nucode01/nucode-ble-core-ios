@@ -1,3 +1,4 @@
+import CoreBluetooth
 import XCTest
 @testable import NucodeBleCore
 
@@ -89,5 +90,31 @@ final class ErrorMappingTests: XCTestCase {
     func testFactoryWithoutIdentifierCanBeMadeTwice() {
         _ = BLEClientFactory.make()
         _ = BLEClientFactory.make()
+    }
+}
+
+/// CANDIDATE-30: `CBCharacteristicProperties` → `CharacteristicProperty`(요청서 §3.2 표). 값으로 시험한다
+final class CharacteristicPropertyMappingTests: XCTestCase {
+    func testEachKeptBitMapsToOneProperty() {
+        let cases: [(CBCharacteristicProperties, CharacteristicProperty)] = [
+            (.read, .read),
+            (.write, .writeWithResponse),
+            (.writeWithoutResponse, .writeWithoutResponse),
+            (.notify, .notify),
+            (.indicate, .indicate),
+        ]
+        for (bit, property) in cases {
+            XCTAssertEqual(CharacteristicPropertyConversion.properties(bit), [property], "\(bit)")
+        }
+        XCTAssertEqual(Set(cases.map(\.1)), Set(CharacteristicProperty.allCases))
+    }
+
+    func testOtherBitsAreDropped() {
+        let dropped: CBCharacteristicProperties = [
+            .broadcast, .authenticatedSignedWrites, .extendedProperties, .notifyEncryptionRequired, .indicateEncryptionRequired,
+        ]
+        XCTAssertEqual(CharacteristicPropertyConversion.properties(dropped), [])
+        XCTAssertEqual(CharacteristicPropertyConversion.properties([]), [])
+        XCTAssertEqual(CharacteristicPropertyConversion.properties(dropped.union([.read, .notify])), [.read, .notify])
     }
 }

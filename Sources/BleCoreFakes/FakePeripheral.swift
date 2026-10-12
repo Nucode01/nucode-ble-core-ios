@@ -223,7 +223,7 @@ package final class FakePeripheral: PeripheralPort {
         respond { device in
             let found = device.spec.characteristics
                 .filter { $0.service == service.uuid && (characteristicUUIDs?.contains($0.uuid) ?? true) }
-                .map { device.characteristicRefs[$0.symbol]! }
+                .map { DiscoveredCharacteristic(ref: device.characteristicRefs[$0.symbol]!, properties: $0.characteristicProperties) }
             device.delegate?.peripheral(device, didDiscoverCharacteristics: found, for: service, error: nil)
         } failure: { device, error in
             device.delegate?.peripheral(device, didDiscoverCharacteristics: [], for: service, error: error)

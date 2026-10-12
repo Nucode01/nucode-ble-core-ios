@@ -37,6 +37,7 @@ actor FakeBackend: ScenarioBackend {
         observer.adapter(.ready)
         observer.scan("Idle")
         observer.services([String]())
+        observer.properties([:])
     }
 
     func connect(autoReconnect: Bool) -> CallOutcome {
@@ -57,6 +58,7 @@ actor FakeBackend: ScenarioBackend {
             case .normal, .hangingRead:
                 observer.state("DiscoveringServices")
                 observer.services(Self.allSymbols)
+                observer.properties(PropertiesLaneTests.probeProperties)
                 observer.state("Configuring")
                 observer.state("Ready")
             }

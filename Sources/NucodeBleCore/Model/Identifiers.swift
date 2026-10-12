@@ -53,9 +53,20 @@ public struct CharacteristicRef: Hashable, Sendable {
     }
 }
 
+/// characteristic 이 광고하는 동작(Android `CharacteristicProperty` 와 같은 5종). 정보 제공용이다.
+/// 코어는 이 값으로 read·write·subscribe 를 거르지 않는다(잘못 광고하는 기기도 있다). 거르기는 앱이 정한다
+public enum CharacteristicProperty: Hashable, Sendable, CaseIterable {
+    case read, writeWithResponse, writeWithoutResponse, notify, indicate
+}
+
 public struct GATTCharacteristic: Hashable, Sendable {
     public let ref: CharacteristicRef
-    public init(ref: CharacteristicRef) { self.ref = ref }
+    /// 탐색 때 플랫폼이 알려 준 properties. `Hashable` 비교 대상이다: ref 가 같아도 properties 가 다르면 다른 값이다
+    public let properties: Set<CharacteristicProperty>
+    public init(ref: CharacteristicRef, properties: Set<CharacteristicProperty>) {
+        self.ref = ref
+        self.properties = properties
+    }
 }
 
 public struct GATTService: Hashable, Sendable {

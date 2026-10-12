@@ -20,6 +20,20 @@ let restoring: any BLEClient = BLEClientFactory.make(options: options)
 
 - 앱 시험에서 client 를 가짜로 바꿔 끼울 수 있다. `guide/recipes/app-integration.md` 레시피 "시험에서 client 바꿔 끼우기" 참고.
 
+- `GATTCharacteristic` 에 `properties: Set<CharacteristicProperty>` 가 생겼다(CANDIDATE-30). Android `GattCharacteristic.properties` 와 같은 5종(`read`·`writeWithResponse`·`writeWithoutResponse`·`notify`·`indicate`)이다.
+  - `init(ref:)` 를 없앴다. `init(ref:properties:)` 만 있다. 빈 집합 기본값은 "모름"과 "없음"을 가리지 못해서 두지 않는다.
+  - **fake client 작성자 영향**: 앱 시험의 가짜 client 가 `GATTCharacteristic(ref:)` 로 만들었다면 컴파일이 깨진다. `properties:` 를 넘긴다.
+  - `properties` 도 `Hashable` 비교 대상이다. ref 가 같아도 properties 가 다르면 다른 값이다.
+  - 정보 제공용이다. 코어는 이 값으로 read·write·subscribe 를 거르지 않는다(잘못 광고하는 기기가 있다). 거르기는 앱이 한다.
+  - iOS GATT 캐시가 옛 properties 를 돌려줄 수 있다(알려진 한계).
+
+```swift
+// 이전
+GATTCharacteristic(ref: ref)
+// 이후
+GATTCharacteristic(ref: ref, properties: [.read, .notify])
+```
+
 ## 0.2.2 (2026-10-01)
 
 공개 API 는 0.2.0 과 같다(`swift package diagnose-api-breaking-changes 0.2.0`). 실패 코드 값의 뜻이 바뀐다.
