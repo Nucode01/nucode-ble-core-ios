@@ -61,6 +61,5 @@ autoReconnect 연결에는 기한이 없습니다. 기기가 광고하지 않으
 ## 더 읽을거리
 
 - [CHANGELOG](../CHANGELOG.md) — 버전별 변경과 옮기는 법
-- [README](../README.md) — 저장소 구성 · 시험 실행
-- 루트 저장소 `contract/` — 두 플랫폼이 지키는 상태 · 실패 코드 계약(정본)
+- [README](../README.md) — 요구 사항 · 설치 · 타깃 구성
 - `Samples/ManualTest` — 이 라이브러리를 쓰는 DDD 구조의 시험 앱

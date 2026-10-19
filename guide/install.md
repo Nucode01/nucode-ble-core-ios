@@ -23,8 +23,8 @@ targets: [
 ]
 ```
 
-**같은 머신의 소스를 바로 쓸 때**(라이브러리를 같이 고치는 중): Xcode 에서 Add Local… 로 `nucode-ble-core/ios` 폴더를 고르거나
-`.package(path: "../nucode-ble-core/ios")` 를 씁니다.
+**같은 머신의 소스를 바로 쓸 때**(라이브러리를 같이 고치는 중): Xcode 에서 Add Local… 로 이 저장소를 받은 폴더를 고르거나
+`.package(path: "../nucode-ble-core-ios")`(받은 폴더 경로)를 씁니다.
 
 > 0.x 동안에는 minor 가 바뀔 때 호환이 깨질 수 있어 `upToNextMinor` 를 권합니다. 바뀌는 내용은 [CHANGELOG](../CHANGELOG.md)에 있습니다.
 
