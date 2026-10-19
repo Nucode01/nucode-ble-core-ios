@@ -50,3 +50,6 @@ BLE_SIM_ONLY=<id>,<id> swift test --filter ContractSimTests
 ## CI
 
 self-hosted macOS runner 하나에서 돈다. 루트 저장소를 읽기 전용 배포 키(`CONTRACT_DEPLOY_KEY`)로 함께 받아 같은 `swift test` 를 돌린다.
+CI 는 태그 push 와 수동 실행(`workflow_dispatch`) 때만 돈다(2026-10-19부터). main push 와 PR 에서는 돌지 않는다.
+태그 실행은 같은 이름의 루트 태그에서 계약을 받는다. 브랜치에서 수동으로 돌리면 루트 main 의 계약을 받는다.
+루트 태그가 GitHub 에 없으면 checkout 이 실패하므로, 태그는 루트 저장소에 먼저 push 하고 그다음 이 저장소에 push 한다.
