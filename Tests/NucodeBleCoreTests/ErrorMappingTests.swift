@@ -43,7 +43,7 @@ final class ErrorMappingTests: XCTestCase {
             (15, "GATT_INSUFFICIENT_ENCRYPTION"),
         ]
         for (code, name) in expected {
-            let failure = PlatformErrorMapping.gattFailure(attError(code), operation: "read")
+            let failure = GattFailure.status(attError(code), operation: "read")
             XCTAssertEqual(failure.code, .gattStatusFailed, name)
             XCTAssertEqual(failure.retryability, .afterEnvironmentChange, name)
             XCTAssertEqual(failure.platformDetail?.ios?.symbolicName, name)
@@ -53,14 +53,14 @@ final class ErrorMappingTests: XCTestCase {
     }
 
     func testOtherAttErrorKeepsDefaultRetryabilityAndNoSymbolicName() {
-        let failure = PlatformErrorMapping.gattFailure(attError(3), operation: "write")
+        let failure = GattFailure.status(attError(3), operation: "write")
         XCTAssertEqual(failure.code, .gattStatusFailed)
         XCTAssertEqual(failure.retryability, FailureCode.gattStatusFailed.retryability)
         XCTAssertNil(failure.platformDetail?.ios?.symbolicName)
     }
 
     func testNonAttDomainWithInsufficientCodeIsNotMappedToSymbolicName() {
-        let failure = PlatformErrorMapping.gattFailure(cbError(5), operation: "read")
+        let failure = GattFailure.status(cbError(5), operation: "read")
         XCTAssertNil(failure.platformDetail?.ios?.symbolicName)
     }
 

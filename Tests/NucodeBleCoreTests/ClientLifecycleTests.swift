@@ -120,4 +120,11 @@ final class ClientLifecycleTests: XCTestCase {
         client.start()
         XCTAssertEqual(counter.created, 0)
     }
+
+    /// start() 가 읽는 Info.plist 값(BLERuntime 의 복원 옵션 검사)
+    func testEnvironmentReadsBundleKeys() {
+        let env = BLEEnvironment(hasBluetoothUsageDescription: true, backgroundModes: ["bluetooth-central"])
+        XCTAssertTrue(env.hasBluetoothCentralBackgroundMode)
+        XCTAssertFalse(BLEEnvironment(hasBluetoothUsageDescription: false).hasBluetoothCentralBackgroundMode)
+    }
 }

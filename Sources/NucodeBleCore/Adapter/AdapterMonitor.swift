@@ -87,10 +87,6 @@ package final class AdapterMonitor {
         dispatch(.platform(Self.radio(central.state), Self.authorization(central.authorization)))
     }
 
-    package nonisolated static func map(state: CentralPortState, authorization: PortAuthorization) -> AdapterState {
-        AdapterCore.map(radio: radio(state), authorization: Self.authorization(authorization))
-    }
-
     // MARK: 명령용 판정
 
     /// 판정 대기를 시작한다. 이미 결정되는 값이면 Waiter 가 바로 끝난 채로 돌아온다.

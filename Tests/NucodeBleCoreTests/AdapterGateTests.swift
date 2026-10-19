@@ -8,25 +8,6 @@ final class AdapterGateTests: XCTestCase {
 
     // MARK: 상태 옮김
 
-    func testMapsStateAndAuthorization() {
-        let cases: [(CentralPortState, PortAuthorization, AdapterState)] = [
-            (.unknown, .notDetermined, .unknown),
-            (.unknown, .allowedAlways, .unknown),
-            (.resetting, .allowedAlways, .resetting),
-            (.unsupported, .allowedAlways, .unsupported),
-            (.unauthorized, .notDetermined, .unauthorized(canRequest: true)),
-            (.unauthorized, .denied, .unauthorized(canRequest: false)),
-            (.unauthorized, .restricted, .unauthorized(canRequest: false)),
-            (.poweredOff, .allowedAlways, .poweredOff),
-            (.poweredOn, .allowedAlways, .ready),
-        ]
-        for (state, authorization, expected) in cases {
-            XCTAssertEqual(AdapterMonitor.map(state: state, authorization: authorization), expected, "\(state) \(authorization)")
-        }
-        // 권한이 거부되면 manager 상태가 무엇이든 canRequest 는 false
-        XCTAssertEqual(AdapterMonitor.map(state: .unknown, authorization: .denied), .unauthorized(canRequest: false))
-    }
-
     @BLECoreActor
     func testAdapterStatesIsUnknownBeforeStartThenFollowsCentral() async throws {
         let central = Support.makeCentral()

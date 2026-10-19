@@ -321,21 +321,4 @@ final class FakePlatformTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(250))
         XCTAssertTrue(rig.recorder.discoveries.isEmpty)
     }
-
-    // MARK: 시계, 환경
-
-    func testScaledClockScalesSleep() async throws {
-        let clock = ScaledClock(scale: 0.1)
-        let start = ContinuousClock.now
-        try await clock.sleep(milliseconds: 500)
-        let elapsed = ContinuousClock.now - start
-        XCTAssertLessThan(elapsed, .milliseconds(300))
-        XCTAssertGreaterThanOrEqual(clock.nowMilliseconds(), 40)
-    }
-
-    func testEnvironmentReadsBundleKeys() {
-        let env = BLEEnvironment(hasBluetoothUsageDescription: true, backgroundModes: ["bluetooth-central"])
-        XCTAssertTrue(env.hasBluetoothCentralBackgroundMode)
-        XCTAssertFalse(BLEEnvironment(hasBluetoothUsageDescription: false).hasBluetoothCentralBackgroundMode)
-    }
 }

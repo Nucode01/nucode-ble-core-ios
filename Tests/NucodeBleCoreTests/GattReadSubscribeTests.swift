@@ -314,61 +314,6 @@ final class GattReadSubscribeTests: XCTestCase {
         watcher.cancel()
         client.close()
     }
-
-    // MARK: 오류 매핑, 큐 기한
-
-    func testInsufficientAttErrorsMapToGattStatusFailedWithSymbolicName() async {
-        let cases: [(Int, String)] = [
-            (5, "GATT_INSUFFICIENT_AUTHENTICATION"),
-            (8, "GATT_INSUFFICIENT_AUTHORIZATION"),
-            (15, "GATT_INSUFFICIENT_ENCRYPTION"),
-        ]
-        for (attCode, name) in cases {
-            let failure = GattFailure.status(PortError(domain: "CBATTErrorDomain", code: attCode, message: "x"), operation: "read")
-            XCTAssertEqual(failure.code.value, "GATT_STATUS_FAILED")
-            XCTAssertEqual(failure.platformDetail?.ios?.symbolicName, name)
-            XCTAssertEqual(failure.retryability, .afterEnvironmentChange)
-        }
-        let plain = GattFailure.status(PortError(domain: "CBATTErrorDomain", code: 2, message: "x"), operation: "read")
-        XCTAssertEqual(plain.code.value, "GATT_STATUS_FAILED")
-        XCTAssertNil(plain.platformDetail?.ios?.symbolicName)
-        XCTAssertEqual(plain.retryability, FailureCode.gattStatusFailed.retryability)
-    }
-
-    func testQueueInvalidateFailsCurrentAndWaiting() async throws {
-        let queue = OperationQueue(clock: ScaledClock(scale: 0.001), timeoutMilliseconds: 5000)
-        let port = CharacteristicRef(
-            service: ServiceRef(uuid: BLEUUID(string: "1234")!, instanceIndex: 0), uuid: BLEUUID(string: "abcd")!, instanceIndex: 0
-        )
-        let first = queue.submit(.read, characteristic: port, start: {})
-        let second = queue.submit(.setNotify(enabled: true), characteristic: port, start: {})
-        queue.invalidate(GattFailure.invalidated("test"))
-        let firstResult = await code { _ = try await first.value() }
-        let secondResult = await code { _ = try await second.value() }
-        XCTAssertEqual(firstResult, "OPERATION_INVALIDATED")
-        XCTAssertEqual(secondResult, "OPERATION_INVALIDATED")
-        XCTAssertTrue(queue.isIdle)
-    }
-
-    func testQueueDeadlineFailsCurrentPoisonsRestAndReportsOnce() async throws {
-        let queue = OperationQueue(clock: ScaledClock(scale: 0.001), timeoutMilliseconds: 5000)
-        var poisoned: [String] = []
-        queue.onPoison = { poisoned.append($0.code.value) }
-        let port = CharacteristicRef(
-            service: ServiceRef(uuid: BLEUUID(string: "1234")!, instanceIndex: 0), uuid: BLEUUID(string: "abcd")!, instanceIndex: 0
-        )
-        var started = 0
-        let first = queue.submit(.read, characteristic: port, start: { started += 1 })
-        let second = queue.submit(.read, characteristic: port, start: { started += 1 })
-        let firstResult = await code { _ = try await first.value() }
-        let secondResult = await code { _ = try await second.value() }
-        XCTAssertEqual(firstResult, "OPERATION_TIMEOUT")
-        XCTAssertEqual(secondResult, "OPERATION_INVALIDATED")
-        XCTAssertEqual(started, 1)
-        XCTAssertEqual(poisoned, ["OPERATION_TIMEOUT"])
-        // 늦은 콜백은 어떤 요청도 끝내지 못한다
-        XCTAssertFalse(queue.didUpdateValue(for: port, value: Data([1]), error: nil))
-    }
 }
 
 /// 알림 스트림 수집기

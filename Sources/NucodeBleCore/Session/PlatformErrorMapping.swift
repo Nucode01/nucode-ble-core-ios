@@ -1,7 +1,7 @@
 import Foundation
 
 /// CoreBluetooth 오류(`CBError`·`CBATTError`, 포트에서는 `PortError`)를 공개 실패로 옮기는 곳(CANDIDATE-8).
-/// CoreBluetooth 를 import 하지 않아 swift test 가 값만으로 시험한다. 새 코드는 없다.
+/// CoreBluetooth 를 import 하지 않아 swift test 가 값만으로 시험한다. GATT 작업 실패는 `GattFailure.status` 가 옮긴다.
 enum PlatformErrorMapping {
     static let cbErrorDomain = "CBErrorDomain"
     /// `CBError.peerRemovedPairingInformation`
@@ -20,10 +20,5 @@ enum PlatformErrorMapping {
             retryability: pairingRemoved ? .afterEnvironmentChange : nil,
             platformDetail: PlatformDetail(ios: .init(domain: error.domain, code: error.code, symbolicName: symbolicName))
         )
-    }
-
-    /// GATT 작업 실패. `CBATTError` insufficient* 는 `GATT_STATUS_FAILED` + `GATT_INSUFFICIENT_*`
-    static func gattFailure(_ error: PortError, operation: String) -> BLEFailure {
-        GattFailure.status(error, operation: operation)
     }
 }

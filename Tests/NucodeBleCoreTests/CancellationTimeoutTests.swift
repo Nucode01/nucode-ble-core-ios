@@ -73,12 +73,21 @@ final class CancellationTimeoutTests: XCTestCase {
         let queue = OperationQueue(clock: clock, timeoutMilliseconds: 5000)
         var poisoned: [String] = []
         queue.onPoison = { poisoned.append($0.code.value) }
-        let waiter = queue.submit(.read, characteristic: port, start: {})
+        var started = 0
+        let waiter = queue.submit(.read, characteristic: port, start: { started += 1 })
+        let waiting = queue.submit(.read, characteristic: port, start: { started += 1 })
         await settle()
         clock.fire()
         let result = await code { _ = try await waiter.value() }
+        await settle()
+        // 기한 초과는 대기 작업을 시작하지 않고 끝낸다. 시작했다면 아래 await 가 기한 없이 멈추므로 먼저 본다
+        guard started == 1 else { return XCTFail("started \(started)") }
+        let waitingResult = await code { _ = try await waiting.value() }
         XCTAssertEqual(result, "OPERATION_TIMEOUT")
+        XCTAssertEqual(waitingResult, "OPERATION_INVALIDATED")
         XCTAssertEqual(poisoned, ["OPERATION_TIMEOUT"])
+        // 늦은 콜백은 어떤 요청도 끝내지 못한다
+        XCTAssertFalse(queue.didUpdateValue(for: port, value: Data([1]), error: nil))
     }
 
     func testCallerCancellationDoesNotEndQueuedOperation() async {
@@ -98,12 +107,23 @@ final class CancellationTimeoutTests: XCTestCase {
     func testInvalidateEndsWaitingOperationAsInvalidated() async {
         let queue = OperationQueue(clock: ManualClock(), timeoutMilliseconds: 5000)
         let first = queue.submit(.read, characteristic: port, start: {})
-        let second = queue.submit(.read, characteristic: port, start: {})
+        let second = queue.submit(.setNotify(enabled: true), characteristic: port, start: {})
         queue.invalidate(GattFailure.invalidated("disconnect"))
         let firstResult = await code { _ = try await first.value() }
         let secondResult = await code { _ = try await second.value() }
         XCTAssertEqual(firstResult, "OPERATION_INVALIDATED")
         XCTAssertEqual(secondResult, "OPERATION_INVALIDATED")
+        XCTAssertTrue(queue.isIdle)
+    }
+
+    /// 기한 판정이 쓰는 실제 시계(ScaledClock)는 배율만큼 줄여 잔다
+    func testScaledClockScalesSleep() async throws {
+        let clock = ScaledClock(scale: 0.1)
+        let start = ContinuousClock.now
+        try await clock.sleep(milliseconds: 500)
+        let elapsed = ContinuousClock.now - start
+        XCTAssertLessThan(elapsed, .milliseconds(300))
+        XCTAssertGreaterThanOrEqual(clock.nowMilliseconds(), 40)
     }
 
     func testCloseIsIdempotentAndEndsInitialSessionUntouched() async throws {
