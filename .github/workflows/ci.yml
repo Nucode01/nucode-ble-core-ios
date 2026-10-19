@@ -2,8 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags: ['*']
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,9 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 태그 실행은 같은 이름의 root 태그 계약을 쓴다. root 태그가 GitHub 에 없으면 실패하므로 태그는 root 먼저 올린다
       - uses: actions/checkout@v4
         with:
           repository: pdev-jay/nucode-ble-core
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
           ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
           path: nucode-ble-core-root
 
