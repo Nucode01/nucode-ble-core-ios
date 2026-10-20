@@ -128,3 +128,20 @@ func findCharacteristic(_ uuid: BLEUUID, inService service: BLEUUID, of session:
     return nil
 }
 // endregion
+
+// region guide:characteristic-properties
+/// 탐색 결과의 properties 로 쓰기 방식을 고른다. 쓰기를 광고하지 않으면 nil 이다
+func writeOptions(for ref: CharacteristicRef, of session: any BLESession) async -> WriteOptions? {
+    for await services in session.services { // 첫 값은 마지막 탐색 결과다
+        let properties = services
+            .first { $0.ref == ref.service }?
+            .characteristics
+            .first { $0.ref == ref }?
+            .properties ?? []
+        if properties.contains(.writeWithResponse) { return WriteOptions() }
+        if properties.contains(.writeWithoutResponse) { return WriteOptions(mode: .withoutResponse) }
+        return nil
+    }
+    return nil
+}
+// endregion

@@ -1,4 +1,4 @@
-# NucodeBleCore iOS 개발자 가이드 (0.2.x)
+# NucodeBleCore iOS 개발자 가이드 (0.3.x)
 
 NucodeBleCore 를 처음 보는 iOS 개발자가 이 가이드만 따라 해서 앱에 붙일 수 있도록 쓴 안내서입니다.
 설치부터 스캔 · 연결 · 읽기 · 쓰기 · 알림 수신 · 실패 처리 · 화면 연동 · 상태 복원까지 순서대로 다룹니다.
@@ -15,7 +15,7 @@ NucodeBleCore 를 처음 보는 iOS 개발자가 이 가이드만 따라 해서 
 |---|---|
 | [설치](install.md) | Swift Package 추가, Info.plist, 권한 팝업 시점 |
 | [핵심 개념](concepts.md) | `BLEClient`·`BLESession`, ID, characteristic 참조, 상태, 실패, 스트림과 스레드, 시간 제한 |
-| [레시피: 스캔과 연결](recipes/scan-connect.md) | 어댑터 상태 · 스캔 필터 · 첫 기기 찾기 · 목록 · ID 저장 · 연결과 Ready 대기 · 재시도 · characteristic 찾기 |
+| [레시피: 스캔과 연결](recipes/scan-connect.md) | 어댑터 상태 · 스캔 필터 · 첫 기기 찾기 · 목록 · ID 저장 · 연결과 Ready 대기 · 재시도 · characteristic 찾기 · properties 보기 |
 | [레시피: 읽기 · 쓰기 · 구독](recipes/data.md) | read · write(분할 · 응답 없음 · 고정 크기) · notify · 요청-응답 · 활성 구독 |
 | [레시피: 연결 유지 · 여러 기기](recipes/connection.md) | autoReconnect · 복구 감시와 포기 · 블루투스 끄고 켜기 · 여러 기기 · 세션 다시 얻기 |
 | [레시피: 실패 처리 · 이벤트 · 스냅샷](recipes/errors-diagnostics.md) | 실패 문구 · 재시도 판단 · 코드표 · CoreBluetooth 원인 · 이벤트 로그 · 스냅샷 |

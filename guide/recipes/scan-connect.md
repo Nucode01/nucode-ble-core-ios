@@ -210,3 +210,31 @@ func findCharacteristic(_ uuid: BLEUUID, inService service: BLEUUID, of session:
 
 `services` 스트림의 첫 값은 마지막 탐색 결과입니다. 탐색 전이면 빈 배열이므로 `ready` 뒤에 부르세요.
 연결이 끊겨도 마지막 탐색 결과는 지우지 않습니다.
+
+## characteristic properties 보기
+
+**언제 쓰나.** 기기가 characteristic 마다 무엇을 허용한다고 알렸는지 보고 화면이나 쓰기 방식을 정할 때.
+
+탐색 결과의 `GATTCharacteristic.properties` 는 `Set<CharacteristicProperty>` 입니다. 값은 `read` · `writeWithResponse` · `writeWithoutResponse` · `notify` · `indicate` 다섯 가지입니다.
+
+<!-- snippet: characteristic-properties -->
+```swift
+/// 탐색 결과의 properties 로 쓰기 방식을 고른다. 쓰기를 광고하지 않으면 nil 이다
+func writeOptions(for ref: CharacteristicRef, of session: any BLESession) async -> WriteOptions? {
+    for await services in session.services { // 첫 값은 마지막 탐색 결과다
+        let properties = services
+            .first { $0.ref == ref.service }?
+            .characteristics
+            .first { $0.ref == ref }?
+            .properties ?? []
+        if properties.contains(.writeWithResponse) { return WriteOptions() }
+        if properties.contains(.writeWithoutResponse) { return WriteOptions(mode: .withoutResponse) }
+        return nil
+    }
+    return nil
+}
+```
+
+- properties 는 정보 제공용입니다. 라이브러리는 이 값으로 read · write · subscribe 를 거르지 않습니다. 실제와 다르게 알리는 기기가 있기 때문입니다. 거르려면 앱이 거릅니다.
+- 빈 집합은 기기가 다섯 가지 중 아무것도 알리지 않았다는 뜻입니다. 다섯 가지 밖의 속성(broadcast · signed write 등)은 담지 않습니다. 예시는 이때와 참조를 찾지 못했을 때 모두 nil 을 돌려줍니다.
+- iOS 는 GATT 캐시에 남은 옛 properties 를 돌려줄 수 있습니다. 알려진 한계입니다.

@@ -13,7 +13,7 @@ print("battery \(percent)%")
 ```
 
 - 5초 안에 응답이 없으면 `OPERATION_TIMEOUT` 이고, **연결도 끊깁니다**(응답 없는 기기에 줄이 막히는 것을 막으려는 것입니다).
-- 읽기 권한이 없는 characteristic 이면 기기가 거절해 `GATT_STATUS_FAILED` 입니다. 라이브러리는 properties 를 미리 검사하지 않습니다.
+- 읽기 권한이 없는 characteristic 이면 기기가 거절해 `GATT_STATUS_FAILED` 입니다. 라이브러리는 properties 를 미리 검사하지 않습니다([properties 보기](scan-connect.md#characteristic-properties-보기)).
 - 암호화가 필요한 characteristic 을 처음 읽으면 iOS 가 페어링 팝업을 띄웁니다. 사용자가 거절하면 `GATT_STATUS_FAILED`(`platformDetail` 에 원인)입니다.
 - **구독 중인 characteristic 을 read 하면 조심하세요.** iOS 는 read 응답과 알림을 같은 콜백으로 줍니다. read 결과가 그 사이 온 알림 값일 수 있고,
   read 응답이 `notifications(for:)` 로도 한 번 더 옵니다. 확인용으로 읽을 값은 구독하지 않는 characteristic 에 두세요.
