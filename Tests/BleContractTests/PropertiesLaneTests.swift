@@ -20,7 +20,7 @@ struct PropertiesLaneTests {
         #expect(ContractLog.renderProperties(["x": ["writeWithoutResponse", "indicate", "write"]]) == "{x=indicate+write+writeWithoutResponse}")
     }
 
-    @Test func probeDefinitionRendersTheContractLine() throws {
+    @Test(.needsContract) func probeDefinitionRendersTheContractLine() throws {
         let probe = try Contract.probe()
         let entries = probe.characteristics.mapValues { Set($0.properties) }
         #expect(ContractLog.renderProperties(entries) == Self.probeLine)
@@ -44,7 +44,7 @@ struct PropertiesLaneTests {
         #expect(Lane.properties.isExtension)
     }
 
-    @Test func recordedWhenInExpect() async throws {
+    @Test(.needsContract) func recordedWhenInExpect() async throws {
         let scenario = try Contract.scenario(LoaderRejectionTests.scenario(
             steps: #"{ "call": "connect" }, { "await": "state", "is": "Ready" }, { "sleep": 10 }"#,
             expect: #"{ "result": ["connect ok"], "properties": ["{}", "\#(Self.probeLine)"], "services": ["{}", "{nus.rx,nus.tx,probe.control,probe.value}"] }"#
@@ -56,7 +56,7 @@ struct PropertiesLaneTests {
         #expect(lanes.lastIndex(of: "services")! < lanes.firstIndex(of: "properties")!)
     }
 
-    @Test func awaitingPropertiesIsRejected() {
+    @Test(.needsContract) func awaitingPropertiesIsRejected() {
         #expect(throws: ContractError.self) {
             try Contract.scenario(LoaderRejectionTests.scenario(
                 steps: #"{ "call": "connect" }, { "await": "properties", "is": "{*}" }"#,

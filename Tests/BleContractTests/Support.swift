@@ -1,5 +1,6 @@
 import BleContract
 import Foundation
+import Testing
 
 enum Contract {
     /// Tests/BleContractTests/<파일> 에서 세 단계 위가 패키지 루트
@@ -9,6 +10,8 @@ enum Contract {
         .deletingLastPathComponent()
 
     static let dir = ContractDirectory.locate(packageRoot: packageRoot)
+
+    static let isAbsent = ContractDirectory.isAbsent(packageRoot: packageRoot)
 
     static func probe() throws -> PeripheralProfile {
         try dir.loadPeripheral(named: "probe")
@@ -22,4 +25,9 @@ enum Contract {
             return probe
         }
     }
+}
+
+extension Trait where Self == ConditionTrait {
+    /// 계약 폴더를 읽는 시험. `BLE_CONTRACT_DIR` 를 주지 않았고 `../contract` 도 없으면 건너뛴다
+    static var needsContract: Self { .enabled(if: !Contract.isAbsent, "계약 폴더 없음") }
 }

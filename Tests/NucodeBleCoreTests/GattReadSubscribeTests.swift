@@ -29,7 +29,7 @@ final class GattReadSubscribeTests: XCTestCase {
     }
 
     private func makeClient() throws -> (DefaultBLEClient, FakeCentral, Session) {
-        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
         let client = Support.makeClient { central }
@@ -68,7 +68,7 @@ final class GattReadSubscribeTests: XCTestCase {
 
     /// 어댑터가 Unknown 이면 GATT 명령도 connect 와 같이 판정을 기다린다(states.md §6). `start()` 전에는 manager 가 없어 Unknown 이다
     func testEntryWaitsForUnknownAdapter() async throws {
-        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
         let client = Support.makeClient { central }

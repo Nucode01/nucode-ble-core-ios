@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 /// 로더는 모르는 것을 조용히 건너뛰지 않고 이유를 담아 거부한다
+@Suite(.needsContract)
 struct LoaderRejectionTests {
     static func scenario(
         id: String = "inline",

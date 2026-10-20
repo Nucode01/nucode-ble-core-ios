@@ -16,6 +16,8 @@ enum SimContract {
 
     static let dir = ContractDirectory.locate(packageRoot: packageRoot)
 
+    static let isAbsent = ContractDirectory.isAbsent(packageRoot: packageRoot)
+
     static var scale: Double {
         ProcessInfo.processInfo.environment["BLE_SIM_SCALE"].flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil } ?? 1
     }
@@ -80,6 +82,8 @@ enum SimContract {
     }
 }
 
+/// 계약 폴더가 없으면(`BLE_CONTRACT_DIR` 없음, `../contract` 없음) 건너뛴다
+@Suite(.enabled(if: !SimContract.isAbsent, "계약 폴더 없음"))
 struct ContractSimTests {
     @Test func onlyListNamesSimIosScenarios() {
         let unknown = (SimContract.onlyList ?? []).filter { !SimContract.targetIds.contains($0) }

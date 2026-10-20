@@ -39,7 +39,7 @@ final class RestorationTests: XCTestCase {
     }
 
     private func makeCentral(state: CentralPortState = .poweredOn) throws -> FakeCentral {
-        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         return FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale), state: state)
     }

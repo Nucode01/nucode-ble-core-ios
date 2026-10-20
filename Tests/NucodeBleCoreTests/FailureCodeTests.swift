@@ -12,7 +12,7 @@ final class FailureCodeTests: XCTestCase {
     }
 
     private func entries() throws -> [Entry] {
-        let dir = ContractDirectory.locate(packageRoot: packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: packageRoot)
         let data = try Data(contentsOf: dir.url.appendingPathComponent("failure-codes.json"))
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let codes = try XCTUnwrap(root["codes"] as? [[String: Any]])

@@ -2,10 +2,30 @@
 
 이 저장소에서 라이브러리를 빌드하고 시험하는 법을 적습니다.
 
+## 저장소
+
+| 저장소 | 주소 | 쓰임 |
+|---|---|---|
+| 메인 | 사내 Azure DevOps(주소는 사내 문서) | 개발 · push |
+| 미러 (GitHub) | `https://github.com/Nucode01/nucode-ble-core-ios.git` | SwiftPM 설치 · CI |
+
+GitHub 저장소는 Azure 저장소의 미러입니다. 사람은 Azure 에만 push 합니다.
+Azure Pipelines(`azure-pipelines.yml`)가 Azure 의 main 과 태그를 GitHub 미러로 옮깁니다. 그래서 커밋과 태그는 Azure 에 먼저 올라가고 GitHub 에는 파이프라인이 태그까지 옮깁니다.
+파이프라인은 `--mirror` · `--force` 를 쓰지 않습니다. 미러의 이력이 갈라지면 push 가 실패합니다.
+SwiftPM 소비자는 미러의 태그를 받습니다. 미러의 태그 push 가 GitHub Actions CI 를 돌립니다.
+
+파이프라인을 쓰려면 사용자가 아래를 한 번 설정합니다.
+
+1. Azure DevOps 에서 이 저장소의 `azure-pipelines.yml` 로 파이프라인을 만듭니다.
+2. 파이프라인에 비밀 변수 `GITHUB_MIRROR_TOKEN` 을 둡니다. 값은 미러 저장소의 Contents 쓰기와 Workflows 쓰기 권한이 있는 GitHub 토큰입니다. Workflows 권한이 없으면 `.github/workflows/` 를 바꾼 커밋의 push 가 실패합니다.
+3. 조직에서 Microsoft-hosted 병렬 작업을 쓸 수 있는지 확인합니다.
+
 ## 계약 폴더
 
 `swift test` 의 계약 시나리오 시험은 계약 폴더(`scenarios/`, `peripherals/`, 실패 코드 표가 든 `contract` 폴더)가 필요합니다.
 시험은 환경 변수 `BLE_CONTRACT_DIR` 를 먼저 봅니다. 값이 없으면 이 패키지 폴더 옆의 `../contract` 를 씁니다.
+`BLE_CONTRACT_DIR` 가 없고 `../contract` 도 없으면, 계약 폴더를 읽는 시험은 "계약 폴더 없음" 이유로 건너뜁니다. 나머지 시험은 그대로 돕니다.
+`BLE_CONTRACT_DIR` 를 줬는데 그 폴더가 없으면 시험이 실패합니다.
 
 ```sh
 BLE_CONTRACT_DIR=/path/to/contract swift test
@@ -30,8 +50,7 @@ BLE_SIM_ONLY=<id>,<id> swift test --filter ContractSimTests
 
 ## CI
 
-CI 는 self-hosted macOS runner 하나에서 `swift test` 를 돌립니다.
+CI 는 GitHub 미러에서 GitHub-hosted macOS runner(`macos-15`) 하나로 `swift test` 를 돌립니다.
 CI 는 태그 push 와 수동 실행(`workflow_dispatch`) 때만 돕니다. main push 와 PR 에서는 돌지 않습니다.
-CI 는 계약 폴더를 계약 저장소(`pdev-jay/nucode-ble-core`)에서 읽기 전용 배포 키(`CONTRACT_DEPLOY_KEY`)로 받습니다.
-태그 실행은 계약 저장소의 같은 이름 태그에서 계약을 받습니다. 브랜치에서 수동으로 돌리면 계약 저장소의 main 에서 받습니다.
-계약 저장소에 같은 이름의 태그가 없으면 checkout 이 실패합니다. 그래서 계약 저장소에 태그를 먼저 push 하고 이 저장소에 태그를 push 합니다.
+미러에는 계약 폴더가 없어 CI 는 계약 폴더를 읽는 시험을 건너뜁니다.
+계약 시험은 계약 폴더가 있는 로컬에서 돌립니다.

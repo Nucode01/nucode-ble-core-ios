@@ -98,7 +98,7 @@ final class FakePlatformTests: XCTestCase {
 
     @BLECoreActor
     private func makeRig() throws -> Rig {
-        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec)
         let recorder = Recorder()

@@ -67,7 +67,7 @@ Android 판(`kr.co.nucode:ble-core`)과 **같은 계약**(명령의 완료 · �
 | 최소 버전 | iOS 17 / macOS 14 |
 | 언어 | Swift 6 (strict concurrency 에서 경고 없이 쓸 수 있습니다) |
 | 의존성 | 없음 (Foundation · CoreBluetooth) |
-| 저장소 | `https://github.com/pdev-jay/nucode-ble-core-ios.git` (비공개. 읽기 권한이 필요합니다) |
+| 저장소 | `https://github.com/Nucode01/nucode-ble-core-ios.git` |
 
 ## 2. 전체 그림
 

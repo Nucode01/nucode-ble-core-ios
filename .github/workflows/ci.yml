@@ -10,22 +10,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    # 이 Mac 의 self-hosted runner(nucode-mac-ios, 2026-09-29 등록). GitHub macOS runner 는 비공개 저장소에서
-    # 10배로 차감되어 쓰지 않는다. Mac 이 꺼져 있으면 이 job 은 대기열에서 기다린다.
-    # CoreBluetooth 를 쓰므로 Linux 에서는 돌지 않는다. macOS job 하나만 둔다
-    runs-on: [self-hosted, macOS, xcode]
+  build:
+    # GitHub-hosted macOS runner. CoreBluetooth 를 쓰므로 Linux 에서는 돌지 않는다. macOS job 하나만 둔다
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      # 태그 실행은 같은 이름의 root 태그 계약을 쓴다. root 태그가 GitHub 에 없으면 실패하므로 태그는 root 먼저 올린다
-      - uses: actions/checkout@v4
-        with:
-          repository: pdev-jay/nucode-ble-core
-          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
-          ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
-          path: nucode-ble-core-root
-
+      # 이 저장소에는 계약 폴더가 없다. 계약 폴더를 읽는 시험은 "계약 폴더 없음" 으로 건너뛰고, 나머지 시험은 돈다
       - name: Test
-        run: BLE_CONTRACT_DIR="$GITHUB_WORKSPACE/nucode-ble-core-root/contract" swift test
+        run: swift test

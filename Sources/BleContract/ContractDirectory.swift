@@ -19,6 +19,18 @@ public struct ContractDirectory: Sendable {
         return ContractDirectory(url: packageRoot.deletingLastPathComponent().appendingPathComponent("contract", isDirectory: true))
     }
 
+    /// 계약 시험을 건너뛸지. `BLE_CONTRACT_DIR` 를 주지 않았고 `<패키지 루트>/../contract` 폴더도 없을 때만 true.
+    /// `BLE_CONTRACT_DIR` 를 줬으면 폴더가 없어도 false 다. 읽을 때 실패해 잘못된 경로를 드러낸다
+    public static func isAbsent(
+        packageRoot: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if let dir = environment["BLE_CONTRACT_DIR"], !dir.isEmpty { return false }
+        var isDirectory: ObjCBool = false
+        let path = locate(packageRoot: packageRoot, environment: environment).url.path
+        return !(FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue)
+    }
+
     public var scenariosURL: URL { url.appendingPathComponent("scenarios", isDirectory: true) }
     public var peripheralsURL: URL { url.appendingPathComponent("peripherals", isDirectory: true) }
 

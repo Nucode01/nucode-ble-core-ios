@@ -145,7 +145,7 @@ final class LinkSetupTests: XCTestCase {
     // MARK: 가짜 기기(프로브 정의) 전체 경로
 
     func testFullPathTransitionsAndServicesSurviveDisconnect() async throws {
-        let dir = ContractDirectory.locate(packageRoot: Self.packageRoot)
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
         let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
         // 처음 보는 기기라 확보 스캔으로 찾는다

@@ -15,10 +15,10 @@ Android 판(`kr.co.nucode:ble-core`)과 같은 상태 순서 · 실패 코드를
 
 ## 설치
 
-Swift Package Manager 로 추가합니다. 저장소는 비공개라 GitHub 읽기 권한이 필요합니다.
+Swift Package Manager 로 추가합니다.
 
 ```swift
-.package(url: "https://github.com/pdev-jay/nucode-ble-core-ios.git", .upToNextMinor(from: "0.3.0")),
+.package(url: "https://github.com/Nucode01/nucode-ble-core-ios.git", .upToNextMinor(from: "0.3.0")),
 ```
 
 product 는 `NucodeBleCore` 입니다. Info.plist 항목과 권한 팝업 시점은 [설치 안내](guide/install.md)에 있습니다.

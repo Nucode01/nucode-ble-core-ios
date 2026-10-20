@@ -167,7 +167,7 @@ actor FakeBackend: ScenarioBackend {
     }
 }
 
-struct ScenarioEngineTests {
+@Suite(.needsContract) struct ScenarioEngineTests {
     /// 시나리오 시간 1ms = 실제 0.01ms. 20초 기다림도 0.2초 안에 끝난다
     static let clock = ContractClock.scaled(0.01)
 
@@ -331,7 +331,7 @@ struct ExtensionLaneTests {
         return report
     }
 
-    @Test func extensionLanesAreDroppedWhenNotInExpect() async throws {
+    @Test(.needsContract) func extensionLanesAreDroppedWhenNotInExpect() async throws {
         let report = try await run("""
             { "call": "startScan" }, { "sleep": 50 }, { "call": "stopScan" },
             { "call": "connect" }, { "await": "state", "is": "Ready" }
@@ -343,7 +343,7 @@ struct ExtensionLaneTests {
         #expect(!report.lines().contains { $0.contains("|scan|") || $0.contains("|adapter|") })
     }
 
-    @Test func scanLanesAndFoundFirstResultPerScan() async throws {
+    @Test(.needsContract) func scanLanesAndFoundFirstResultPerScan() async throws {
         let report = try await run("""
             { "call": "startScan", "filter": { "name": "Nordic_UART_Service" } },
             { "await": "found", "count": 1 },
@@ -357,7 +357,7 @@ struct ExtensionLaneTests {
         #expect(report.log[.found] == ["probe", "probe"])
     }
 
-    @Test func servicesLaneAndOrderOfContractLines() async throws {
+    @Test(.needsContract) func servicesLaneAndOrderOfContractLines() async throws {
         let report = try await run("""
             { "call": "connect" }, { "await": "state", "is": "Ready" },
             { "call": "write", "char": "nus.rx", "pattern": 1024 }, { "sleep": 10 },
@@ -373,7 +373,7 @@ struct ExtensionLaneTests {
         #expect(lanes.contains("peer") && lanes.contains("services"))
     }
 
-    @Test func adapterStepAndWaitAndFailure() async throws {
+    @Test(.needsContract) func adapterStepAndWaitAndFailure() async throws {
         let report = try await run("""
             { "adapter": "PoweredOff" }, { "await": "adapter", "is": "PoweredOff" },
             { "call": "connect" },
@@ -386,14 +386,14 @@ struct ExtensionLaneTests {
         #expect(failing.verdict == .fail(reason: "step[0] await adapter Resetting: timed out after 100ms"))
     }
 
-    @Test func adapterOffWhileScanningFailsScan() async throws {
+    @Test(.needsContract) func adapterOffWhileScanningFailsScan() async throws {
         let report = try await run("""
             { "call": "startScan" }, { "adapter": "PoweredOff" }
             """, expect: #"{ "scan": ["Idle", "Scanning", "Idle(Failed:*)"] }"#)
         #expect(report.verdict == .pass)
     }
 
-    @Test func snapshotResultLine() async throws {
+    @Test(.needsContract) func snapshotResultLine() async throws {
         let report = try await run("""
             { "call": "snapshot" },
             { "call": "connect" }, { "await": "state", "is": "Ready" },
@@ -406,7 +406,7 @@ struct ExtensionLaneTests {
         #expect(report.verdict == .pass, "\(report.log[.result])")
     }
 
-    @Test func closeThenCallsFail() async throws {
+    @Test(.needsContract) func closeThenCallsFail() async throws {
         let report = try await run("""
             { "call": "connect" }, { "await": "state", "is": "Ready" },
             { "call": "close" }, { "call": "startScan" }
@@ -414,7 +414,7 @@ struct ExtensionLaneTests {
         #expect(report.verdict == .pass, "\(report.log[.result]) \(report.log[.state])")
     }
 
-    @Test func peerMismatchFailsJudgment() async throws {
+    @Test(.needsContract) func peerMismatchFailsJudgment() async throws {
         let report = try await run("""
             { "call": "connect" }, { "await": "state", "is": "Ready" }, { "device": "rxCheck" }
             """, expect: #"{ "peer": ["rx 1024 ok"] }"#)

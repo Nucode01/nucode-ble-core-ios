@@ -12,7 +12,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
 packages:
   NucodeBleCore:
-    url: https://github.com/pdev-jay/nucode-ble-core-ios.git
+    url: https://github.com/Nucode01/nucode-ble-core-ios.git
     exactVersion: "0.2.2"
 targets:
   BLEDemo:
