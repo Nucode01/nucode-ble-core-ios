@@ -10,15 +10,21 @@
 | 미러 (GitHub) | `https://github.com/Nucode01/nucode-ble-core-ios.git` | SwiftPM 설치 · CI |
 
 GitHub 저장소는 Azure 저장소의 미러입니다. 사람은 Azure 에만 push 합니다.
-Azure Pipelines(`azure-pipelines.yml`)가 Azure 의 main 과 태그를 GitHub 미러로 옮깁니다. 그래서 커밋과 태그는 Azure 에 먼저 올라가고 GitHub 에는 파이프라인이 태그까지 옮깁니다.
+Azure Pipelines(`azure-pipelines.yml`)가 실행을 시작한 ref 하나만 GitHub 미러로 옮깁니다. main push 는 `main` 을, 태그 push 는 그 태그만 옮깁니다. 태그 실행은 미러의 `main` 을 바꾸지 않습니다.
 파이프라인은 `--mirror` · `--force` 를 쓰지 않습니다. 미러의 이력이 갈라지면 push 가 실패합니다.
 SwiftPM 소비자는 미러의 태그를 받습니다. 미러의 태그 push 가 GitHub Actions CI 를 돌립니다.
 
-파이프라인을 쓰려면 사용자가 아래를 한 번 설정합니다.
+### 파이프라인 설정 (처음 한 번)
 
-1. Azure DevOps 에서 이 저장소의 `azure-pipelines.yml` 로 파이프라인을 만듭니다.
-2. 파이프라인에 비밀 변수 `GITHUB_MIRROR_TOKEN` 을 둡니다. 값은 미러 저장소의 Contents 쓰기와 Workflows 쓰기 권한이 있는 GitHub 토큰입니다. Workflows 권한이 없으면 `.github/workflows/` 를 바꾼 커밋의 push 가 실패합니다.
-3. 조직에서 Microsoft-hosted 병렬 작업을 쓸 수 있는지 확인합니다.
+파이프라인은 미러 저장소의 SSH deploy key 로 push 합니다. deploy key 는 사람 계정과 만료에 묶이지 않고, 이 저장소 하나에만 쓸 수 있습니다.
+
+1. 이 저장소 전용 ed25519 키 쌍을 만듭니다: `ssh-keygen -t ed25519 -N '' -C nucode-ble-core-ios-mirror -f nucode-ble-core-ios-mirror`. 다른 저장소와 키를 같이 쓰지 않습니다.
+2. 공개 키(`.pub`)를 GitHub 미러 `Nucode01/nucode-ble-core-ios` 의 Settings → Deploy keys 에 더합니다. Allow write access 를 켭니다.
+3. 개인 키를 Azure DevOps 의 Pipelines → Library → Secure files 에 올립니다. 이름은 `nucode-ble-core-ios-mirror` 입니다.
+4. 개인 키는 올린 뒤 로컬에서 지웁니다. 저장소에 넣지 않습니다.
+5. Azure DevOps 에서 이 저장소의 `azure-pipelines.yml` 로 파이프라인을 만듭니다.
+6. 첫 실행에서 secure file 사용 권한을 물으면 Permit 을 누릅니다.
+7. 조직에서 Microsoft-hosted 병렬 작업을 쓸 수 있는지 확인합니다. 쓸 수 없으면 파이프라인이 대기열에서 시작하지 않습니다.
 
 ## 계약 폴더
 
