@@ -1,7 +1,10 @@
 import Foundation
 
+/// 기기 하나를 보는 가벼운 view. `BLEClient.connect` 나 `session(for:)` 로 얻는다. 한 세션의 명령은 부른 순서대로 하나씩 실행된다
 public protocol BLESession: AnyObject, Sendable {
+    /// 이 세션의 기기 ID
     var peripheralID: PeripheralID { get }
+    /// 연결 상태. 구독하면 현재 값을 먼저 준다
     var connectionStates: AsyncStream<ConnectionState> { get }
     /// 마지막으로 탐색한 서비스 목록. 연결이 끊겨도 비우지 않는다(contract/states.md)
     var services: AsyncStream<[GATTService]> { get }
