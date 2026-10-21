@@ -216,7 +216,7 @@ extension Scenario {
         }
 
         // 확장 레인을 기다리는 단계는 그 레인이 expect 에 있어야 하므로 expect 를 먼저 읽는다
-        var parser = StepParser(profile: profile, runsOn: runsOn, expectLanes: Set(expect.keys))
+        var parser = StepParser(profile: profile, runsOn: runsOn, platforms: platforms, expectLanes: Set(expect.keys))
         let steps = try root.array("steps").enumerated().map { i, v in
             try parser.parse(v, path: "\(source).steps[\(i)]")
         }
@@ -257,15 +257,10 @@ extension Scenario {
 struct StepParser {
     let profile: PeripheralProfile
     let runsOn: [RunTarget]
+    let platforms: [Platform]
     let expectLanes: Set<Lane>
     var asyncNames: Set<String> = []
     var cancelledNames: Set<String> = []
-
-    init(profile: PeripheralProfile, runsOn: [RunTarget], expectLanes: Set<Lane>) {
-        self.profile = profile
-        self.runsOn = runsOn
-        self.expectLanes = expectLanes
-    }
 
     mutating func parse(_ value: JSONValue, path: String) throws -> Step {
         let o = try JSONObject(value, path: path)
@@ -312,7 +307,8 @@ struct StepParser {
         let action: CallAction
         switch name {
         case "connect":
-            try o.only(common.union(["autoReconnect"]))
+            try o.only(common.union(["autoReconnect", "requestedMtu"]))
+            try checkRequestedMtu(o)
             action = .connect(autoReconnect: try o.optionalBool("autoReconnect") ?? false)
         case "disconnect":
             try o.only(common)
@@ -406,7 +402,7 @@ struct StepParser {
                 throw ContractError("\(o.path).name: no earlier async call named \"\(name)\"")
             }
             condition = .result(name: name)
-        case "active", "adapter", "scan", "services", "adTypes":
+        case "active", "adapter", "scan", "services", "adTypes", "writeLimits", "androidMtu":
             try o.only(["await", "is", "timeoutMs"])
             let lane = Lane(rawValue: kind)!
             try requireInExpect(lane, o)

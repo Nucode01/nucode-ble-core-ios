@@ -95,11 +95,11 @@ struct ContractSimTests {
     func scenarioPasses(id: String) async throws {
         let report = try await SimContract.run(id: id)
         print(report.lines().joined(separator: "\n"))
-        guard try SimContract.dir.loadScenario(id: id).awaitsIosDescriptorSupport else {
+        guard let pending = try SimContract.dir.loadScenario(id: id).pendingIosSupport else {
             #expect(report.verdict == .pass, "\(id): \(report.verdict)")
             return
         }
-        withKnownIssue("iOS descriptor 구현 전(CANDIDATE-32) draft") {
+        withKnownIssue("iOS \(pending) 구현 전 draft") {
             #expect(report.verdict == .pass, "\(id): \(report.verdict)")
         }
     }

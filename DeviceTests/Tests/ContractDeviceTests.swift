@@ -31,9 +31,9 @@ final class ContractDeviceTests: XCTestCase {
                 continue
             }
             print(report.lines().joined(separator: "\n"))
-            if scenario.awaitsIosDescriptorSupport {
+            if let pending = scenario.pendingIosSupport {
                 // 클로저 형식만 쓴다. 클로저 없이 부르면 남은 시나리오의 실패까지 예상 실패가 된다
-                XCTExpectFailure("iOS descriptor 구현 전(CANDIDATE-32) draft") {
+                XCTExpectFailure("iOS \(pending) 구현 전 draft") {
                     XCTAssertEqual(report.verdict, .pass, "\(id): \(report.verdict)")
                 }
             } else {

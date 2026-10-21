@@ -37,15 +37,19 @@ struct PropertiesLaneTests {
         #expect(log[.properties] == ["{}", Self.probeLine])
     }
 
-    @Test func laneOrderIsServicesPropertiesDescriptorsAdTypesPeer() {
+    @Test func laneOrderFollowsTheContractLineOrder() {
         let order = Lane.allCases
         #expect(order.firstIndex(of: .properties)! == order.firstIndex(of: .services)! + 1)
         #expect(order.firstIndex(of: .descriptors)! == order.firstIndex(of: .properties)! + 1)
         #expect(order.firstIndex(of: .adTypes)! == order.firstIndex(of: .descriptors)! + 1)
-        #expect(order.firstIndex(of: .peer)! == order.firstIndex(of: .adTypes)! + 1)
+        #expect(order.firstIndex(of: .writeLimits)! == order.firstIndex(of: .adTypes)! + 1)
+        #expect(order.firstIndex(of: .androidMtu)! == order.firstIndex(of: .writeLimits)! + 1)
+        #expect(order.firstIndex(of: .peer)! == order.firstIndex(of: .androidMtu)! + 1)
         #expect(Lane.properties.isExtension)
         #expect(Lane.descriptors.isExtension)
         #expect(Lane.adTypes.isExtension)
+        #expect(Lane.writeLimits.isExtension)
+        #expect(Lane.androidMtu.isExtension)
     }
 
     @Test(.needsContract) func recordedWhenInExpect() async throws {
