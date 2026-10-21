@@ -19,6 +19,22 @@ struct ContractFilesTests {
         }
     }
 
+    /// Android 전용 시나리오(CANDIDATE-31)는 읽히지만 iOS 실행 대상(`platforms.contains(.ios)`)이 아니다
+    @Test(.needsContract) func androidOnlyScenarioIsNotAnIosTarget() throws {
+        let s = try Contract.dir.loadScenario(id: "scan-exposes-raw-advertisement")
+        #expect(s.platforms == [.android])
+        #expect(!s.platforms.contains(.ios))
+        #expect(s.expect[.adTypes]?.last == "{01,07,09}")
+    }
+
+    @Test(.needsContract) func adTypesLaneInDiffIgnoreIsAccepted() throws {
+        let s = try Contract.scenario(LoaderRejectionTests.scenario(
+            expect: #"{ "adTypes": [] }"#,
+            extra: #", "diffIgnore": ["adTypes|?{01,09}"]"#
+        ))
+        #expect(s.diffIgnore.count == 1)
+    }
+
     @Test(.needsContract) func defaultsAreFilledIn() throws {
         let s = try Contract.dir.loadScenario(id: "connect-ready-disconnect")
         #expect(s.platforms == [.android, .ios])

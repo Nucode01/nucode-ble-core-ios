@@ -400,7 +400,7 @@ private struct StepParser {
                 throw ContractError("\(o.path).name: no earlier async call named \"\(name)\"")
             }
             condition = .result(name: name)
-        case "active", "adapter", "scan", "services":
+        case "active", "adapter", "scan", "services", "adTypes":
             try o.only(["await", "is", "timeoutMs"])
             let lane = Lane(rawValue: kind)!
             try requireInExpect(lane, o)

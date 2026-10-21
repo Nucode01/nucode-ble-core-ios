@@ -37,11 +37,13 @@ struct PropertiesLaneTests {
         #expect(log[.properties] == ["{}", Self.probeLine])
     }
 
-    @Test func laneOrderIsServicesThenPropertiesThenPeer() {
+    @Test func laneOrderIsServicesPropertiesAdTypesPeer() {
         let order = Lane.allCases
         #expect(order.firstIndex(of: .properties)! == order.firstIndex(of: .services)! + 1)
-        #expect(order.firstIndex(of: .peer)! == order.firstIndex(of: .properties)! + 1)
+        #expect(order.firstIndex(of: .adTypes)! == order.firstIndex(of: .properties)! + 1)
+        #expect(order.firstIndex(of: .peer)! == order.firstIndex(of: .adTypes)! + 1)
         #expect(Lane.properties.isExtension)
+        #expect(Lane.adTypes.isExtension)
     }
 
     @Test(.needsContract) func recordedWhenInExpect() async throws {

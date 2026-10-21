@@ -2,7 +2,7 @@
 public enum Lane: String, Sendable, CaseIterable {
     case state, result, notify, active
     /// 아래는 확장 레인. 시나리오의 `expect`에 있을 때만 기록·출력한다
-    case adapter, scan, found, services, properties, peer
+    case adapter, scan, found, services, properties, adTypes, peer
 
     public var isExtension: Bool {
         switch self {
@@ -14,7 +14,7 @@ public enum Lane: String, Sendable, CaseIterable {
     /// 값이 바뀔 때만 의미가 있어 연속 중복을 합치는 레인
     var mergesDuplicates: Bool {
         switch self {
-        case .active, .adapter, .scan, .services, .properties: true
+        case .active, .adapter, .scan, .services, .properties, .adTypes: true
         default: false
         }
     }
