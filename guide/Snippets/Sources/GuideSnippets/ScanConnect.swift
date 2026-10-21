@@ -24,7 +24,8 @@ func watchAdapter(_ client: any BLEClient) -> Task<Void, Never> {
 // endregion
 
 // region guide:scan-filters
-/// 필터 항목(serviceUUIDs · manufacturerData · serviceData)은 서로 OR 이고, namePrefix 만 AND 로 붙는다
+/// 라이브러리 판정에서 필터 항목(serviceUUIDs · manufacturerData · serviceData)은 서로 OR 이고, namePrefix 만 AND 로 붙는다.
+/// iOS 한계: serviceUUIDs 를 함께 주면 iOS 가 그 서비스로 먼저 거르므로, 제조사 · service data 만 맞는 기기는 나온다고 보장하지 않는다
 let byService = ScanFilter(serviceUUIDs: [NUS.service.uuid])
 
 let byNamePrefix = ScanFilter(namePrefix: "Nordic_")

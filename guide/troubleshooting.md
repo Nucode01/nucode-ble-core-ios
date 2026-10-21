@@ -13,6 +13,7 @@
 | 항상 `.unauthorized(canRequest: false)` | Info.plist 에 `NSBluetoothAlwaysUsageDescription` 이 없거나 사용자가 거부했습니다 | 키를 넣거나 설정 앱으로 안내합니다 |
 | 시뮬레이터에서 아무것도 안 됨 | 시뮬레이터에는 블루투스가 없습니다 | 실기기에서 실행합니다 |
 | 백그라운드에서 스캔 결과가 없음 | iOS 는 서비스 UUID 필터 없는 스캔을 백그라운드에서 멈춥니다 | `ScanFilter(serviceUUIDs:)` 를 씁니다 |
+| `serviceUUIDs` 와 `manufacturerData` 를 함께 줬더니 일부 기기가 안 보임 | iOS 가 `serviceUUIDs` 로 먼저 거르므로, 그 서비스를 광고하지 않는 기기는 나온다고 보장하지 않습니다(iOS 한계) | `serviceUUIDs` 를 비우고 다른 항목만 줍니다(포그라운드 전용). [스캔 필터](recipes/scan-connect.md#스캔-필터) |
 | 블루투스를 다시 켰는데 스캔이 안 돎 | 스캔은 자동으로 재개하지 않습니다 | `scanStates` 가 `.failed` 면 다시 `startScan` 합니다 |
 | 같은 알림이 두 번 옴 | `onNotification` 과 `notifications(for:)` 를 둘 다 씁니다 | 한 곳에서만 셉니다 |
 | read 결과가 이상한 값 | 구독 중인 characteristic 을 읽어 알림 값을 받았습니다 | [read 주의](recipes/data.md#read) |

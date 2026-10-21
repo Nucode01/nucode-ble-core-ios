@@ -83,7 +83,7 @@ public struct ServiceDataFilter: Hashable, Sendable {
 }
 
 /// 스캔 필터. 라이브러리 판정에서 `serviceUUIDs` · `manufacturerData` · `serviceData` 항목은 서로 OR 이고 `namePrefix` 만 AND 로 붙는다.
-/// iOS 한계: `serviceUUIDs` 가 있으면 iOS 가 그 서비스를 광고한 기기만 넘기므로, 제조사 · service data 만 맞는 기기는 보고되지 않는다.
+/// iOS 한계: `serviceUUIDs` 가 있으면 iOS 가 그 서비스를 광고한 기기만 넘기므로, 제조사 · service data 만 맞는 기기는 보고된다고 보장하지 않는다.
 /// 모두 비우면 주변의 모든 광고를 받는다
 public struct ScanFilter: Hashable, Sendable {
     /// iOS 가 거른다. 백그라운드 스캔은 이 필터만 동작한다

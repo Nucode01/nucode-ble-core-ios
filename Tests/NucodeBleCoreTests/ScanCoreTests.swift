@@ -219,4 +219,21 @@ final class ScanCoreTests: XCTestCase {
         XCTAssertEqual(Core.nextInternalID(state), 4, "S15 뺀 id 는 다시 쓰지 않는다")
         XCTAssertEqual(run(state, [.discovered(adv([a]))]).1, [["deliver(0)", "deliver(2)", "deliver(3)"]], "S15 남은 id 만 id 순으로 전달")
     }
+
+    // MARK: iOS 필터 한계 (guide/recipes/scan-connect.md 스캔 필터)
+
+    func testPlatformScanKeepsServicesWithOtherFilterItems() {
+        let filter = ScanFilter(
+            serviceUUIDs: [a],
+            manufacturerData: [ManufacturerDataFilter(companyID: 0x0059)],
+            serviceData: [ServiceDataFilter(serviceUUID: b)]
+        )
+        let (scanning, out) = run(ready(), [.startRequested(ScanRequest(filter: filter))])
+        XCTAssertEqual(out, [["scan([A],dup=false)", "publish(Scanning)"]], "다른 항목이 있어도 플랫폼 필터는 serviceUUIDs")
+
+        let (widened, joined) = run(scanning, [.internalJoined(services: [])])
+        XCTAssertEqual(joined, [["scan(nil,dup=false)"]], "서비스 조건 없는 내부 스캔이 겹치면 플랫폼 필터가 없어진다")
+        let manufacturerOnly = AdvertisementData(manufacturerData: [0x0059: Data([0x01])])
+        XCTAssertEqual(run(widened, [.discovered(manufacturerOnly)]).1, [["emit", "deliver(0)"]], "그때는 제조사 데이터만 맞는 광고도 사용자에게 간다")
+    }
 }

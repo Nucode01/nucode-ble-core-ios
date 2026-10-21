@@ -37,7 +37,8 @@ func watchAdapter(_ client: any BLEClient) -> Task<Void, Never> {
 
 <!-- snippet: scan-filters -->
 ```swift
-/// 필터 항목(serviceUUIDs · manufacturerData · serviceData)은 서로 OR 이고, namePrefix 만 AND 로 붙는다
+/// 라이브러리 판정에서 필터 항목(serviceUUIDs · manufacturerData · serviceData)은 서로 OR 이고, namePrefix 만 AND 로 붙는다.
+/// iOS 한계: serviceUUIDs 를 함께 주면 iOS 가 그 서비스로 먼저 거르므로, 제조사 · service data 만 맞는 기기는 나온다고 보장하지 않는다
 let byService = ScanFilter(serviceUUIDs: [NUS.service.uuid])
 
 let byNamePrefix = ScanFilter(namePrefix: "Nordic_")
@@ -60,6 +61,12 @@ let everything = ScanRequest(filter: ScanFilter(), options: ScanOptions(mode: .l
 | `namePrefix` | 라이브러리가 거릅니다 | 광고의 local name 만 봅니다(시스템이 캐시한 기기 이름은 보지 않습니다). 백그라운드 광고에는 이름이 없는 경우가 많습니다 |
 | `manufacturerData` · `serviceData` | 라이브러리가 거릅니다 | `data` 가 없으면 ID 만 맞으면 됩니다. 있으면 광고 값의 **앞부분**이 `data` 와 같아야 하고, `mask` 의 0 비트는 비교하지 않습니다 |
 | `ScanOptions.mode` | — | iOS 에는 스캔 세기 설정이 없습니다. `.lowLatency` 만 "같은 기기 광고를 반복 보고"를 켜고, 나머지는 같습니다 |
+
+- **iOS 한계: `serviceUUIDs` 와 `manufacturerData` · `serviceData` 를 함께 주면 OR 을 보장하지 않습니다.**
+  iOS 가 `serviceUUIDs` 로 먼저 거르므로, 그 서비스를 광고하지 않고 제조사 · service data 만 맞는 기기는 결과에 나온다고 보장하지 않습니다.
+  ID 로 연결하는 중이면 라이브러리가 서비스 조건 없이 잠깐 스캔하므로 그런 기기가 보일 때도 있습니다. 이 동작에 기대지 않습니다.
+  Android 판 라이브러리는 같은 필터를 OR 로 판정합니다.
+  서비스를 광고하지 않는 기기도 찾으려면 `serviceUUIDs` 를 비우고 다른 항목만 줍니다. 서비스 조건 없는 스캔은 포그라운드에서만 동작합니다.
 
 - 스캔은 한 번에 하나입니다. 스캔 중에 **같은** 요청으로 `startScan` 하면 아무 일 없이 성공하고, **다른** 요청이면 `SCAN_ALREADY_RUNNING` 입니다. 조건을 바꾸려면 `stopScan()` 뒤 다시 시작합니다.
 - `stopScan()` 은 멱등입니다. 여러 번 불러도 됩니다.
