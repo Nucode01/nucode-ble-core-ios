@@ -94,6 +94,80 @@ final class GattWriteTests: XCTestCase {
         client.close()
     }
 
+    // MARK: write 한도 (CANDIDATE-5, api-contract §write 한도 계약)
+
+    func testChunkSizeFollowsChunkingAndLimit() async throws {
+        XCTAssertEqual(try WriteJob.chunkSize(.automatic, valueCount: 1000, limit: 62), 62)
+        XCTAssertEqual(try WriteJob.chunkSize(.disabled, valueCount: 62, limit: 62), 62)
+        XCTAssertEqual(try WriteJob.chunkSize(.fixed(20), valueCount: 1000, limit: 62), 20)
+        XCTAssertEqual(try WriteJob.chunkSize(.fixed(62), valueCount: 1000, limit: 62), 62)
+        for (chunking, count) in [(WriteChunking.disabled, 63), (.fixed(63), 1000), (.fixed(0), 1000)] {
+            XCTAssertThrowsError(try WriteJob.chunkSize(chunking, valueCount: count, limit: 62), "\(chunking)") { error in
+                XCTAssertEqual((error as? BLEError)?.failure.code, .payloadTooLarge)
+            }
+        }
+    }
+
+    func testWriteLimitsAppearAtReadyAndClearAfterDisconnect() async throws {
+        let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
+        let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))
+        let central = FakeCentral(spec: spec, clock: ScaledClock(scale: Support.scale))
+        let client = Support.makeClient { central }
+        client.start()
+        let handle = try client.session(for: id)
+        let session = client.runtime.registry.session(for: id)
+        let limits = handle.writeLimits
+        let collected = Task { () -> [WriteLimits?] in
+            var values: [WriteLimits?] = []
+            for await value in limits {
+                values.append(value)
+                if values.count == 3 { break }
+            }
+            return values
+        }
+        // Ready 를 본 관찰자는 nil 이 아닌 값을 읽는다
+        let states = session.state.subscribe()
+        let sawLimitsAtReady = Task { @BLECoreActor in
+            for await state in states {
+                if case .ready = state { return session.writeLimitsFlow.value != nil }
+            }
+            return false
+        }
+        try await handle.connect(options: ConnectOptions(autoReconnect: false))
+        let atReady = await sawLimitsAtReady.value
+        XCTAssertTrue(atReady)
+        XCTAssertEqual(session.writeLimitsFlow.value, WriteLimits(withResponse: 512, withoutResponse: 62))
+        await handle.disconnect()
+        let values = await collected.value
+        XCTAssertEqual(values, [nil, WriteLimits(withResponse: 512, withoutResponse: 62), nil])
+        XCTAssertNil(session.writeLimitsFlow.value)
+        client.close()
+    }
+
+    func testWriteUsesWriteLimitsNotThePort() async throws {
+        let (client, central, session) = try await makeReady()
+        let rx = central.peripheral.characteristicRef("nus.rx")
+        // 가짜 포트는 512 다. 포트에 다시 물으면 3조각 · 성공이 된다
+        session.writeLimitsFlow.send(WriteLimits(withResponse: 100, withoutResponse: 62))
+        let receipt = try await session.write(rx, value: pattern(1100), options: WriteOptions(mode: .withResponse))
+        XCTAssertEqual(receipt.chunksCompleted, 11)
+        do {
+            _ = try await session.write(rx, value: pattern(400), options: WriteOptions(mode: .withResponse, chunking: .fixed(200)))
+            XCTFail("must fail")
+        } catch let error as BLEError {
+            XCTAssertEqual(error.failure.code, .payloadTooLarge)
+        }
+        client.close()
+    }
+
+    func testCloseWhileReadyEndsWriteLimitsWithNil() async throws {
+        let (client, _, session) = try await makeReady()
+        XCTAssertNotNil(session.writeLimitsFlow.value)
+        client.close()
+        XCTAssertNil(session.writeLimitsFlow.value)
+        XCTAssertTrue(session.writeLimitsFlow.isClosed)
+    }
+
     func testWriteBeforeReadyIsRejected() async throws {
         let dir = try ClientTestSupport.contractDirectory(packageRoot: Self.packageRoot)
         let spec = try FakeDeviceSpec(profile: try dir.loadPeripheral(named: "probe"))

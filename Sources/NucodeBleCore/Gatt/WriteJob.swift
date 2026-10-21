@@ -34,6 +34,30 @@ package final class WriteJob {
         self.send = send
     }
 
+    /// 조각 크기(states.md §8): automatic 은 `limit`, fixed(n) 은 n, disabled 는 값 전체. disabled·fixed 가 `limit` 를 넘으면
+    /// 아무것도 보내지 않도록 `PAYLOAD_TOO_LARGE` 를 던진다
+    package static func chunkSize(_ chunking: WriteChunking, valueCount: Int, limit: Int) throws -> Int {
+        let size: Int
+        switch chunking {
+        case .automatic:
+            return limit
+        case .disabled:
+            size = valueCount
+        case .fixed(let bytes):
+            guard bytes >= 1 else {
+                throw BLEError(failure: BLEFailure(code: .payloadTooLarge, message: "나누기 크기는 1 이상이어야 한다"))
+            }
+            size = bytes
+        }
+        guard size <= limit else {
+            throw BLEError(failure: BLEFailure(
+                code: .payloadTooLarge,
+                message: "한 번에 보낼 수 있는 \(limit)바이트를 넘는다(\(size)바이트). 나누기를 automatic 으로 바꾼다"
+            ))
+        }
+        return size
+    }
+
     /// 값을 `limit` 바이트 이하 조각으로 자른다. 빈 값은 빈 조각 하나다
     package static func split(_ value: Data, limit: Int) -> [Data] {
         guard !value.isEmpty else { return [Data()] }

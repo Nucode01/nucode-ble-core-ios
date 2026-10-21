@@ -13,6 +13,8 @@ package final class Session {
     package let servicesFlow = StateBroadcaster<[GATTService]>([])
     /// 이 연결에서 CCCD 가 확인된 ref 집합. `subscriptions`(의도)와 다르다
     package let activeSubscriptionsFlow = StateBroadcaster<Set<CharacteristicRef>>([])
+    /// 방식별 write 한도. Ready 게시 직전에 정하고 Ready 를 떠나면 nil. write 의 조각 크기가 이 값이다
+    package let writeLimitsFlow = StateBroadcaster<WriteLimits?>(nil)
     /// Configuring 단계의 일을 바꿔 끼우는 시험용 자리. 끝나면 인자로 받은 완료 함수를 부른다. 없으면 구독 의도를 복원한다
     /// 등록된 알림 통로. 세션 단계와 무관하게 온 값을 앱에 넘긴다. 등록 기기의 세션에만 있다
     package var notificationTap: (@BLECoreActor (_ characteristic: CharacteristicRef, _ value: Data) -> Void)?
@@ -115,6 +117,17 @@ package final class Session {
     private func perform(_ effect: ConnectionCore.Effect, _ inputs: Inputs) {
         switch effect {
         case .publish(let new):
+            // write 한도(api-contract §write 한도 계약): Ready 게시 직전에 정해 연결 동안 고정하고, Ready 를 떠나면 지운다
+            if case .ready = new {
+                if writeLimitsFlow.value == nil, let peripheral {
+                    writeLimitsFlow.send(WriteLimits(
+                        withResponse: peripheral.maximumWriteValueLength(for: .withResponse),
+                        withoutResponse: peripheral.maximumWriteValueLength(for: .withoutResponse)
+                    ))
+                }
+            } else if writeLimitsFlow.value != nil {
+                writeLimitsFlow.send(nil)
+            }
             state.send(new)
             context.events.emit(.connection(peripheralID: peripheralID, state: new))
         case .beginAttempt(let generation, _, _):
@@ -201,6 +214,9 @@ package final class Session {
             state.close()
             servicesFlow.close()
             activeSubscriptionsFlow.close()
+            // close 는 단계를 게시하지 않는다. 쓸 연결이 없으므로 write 한도는 nil 로 끝낸다
+            if writeLimitsFlow.value != nil { writeLimitsFlow.send(nil) }
+            writeLimitsFlow.close()
         }
     }
 
@@ -435,33 +451,15 @@ extension Session {
         return try await waiter.value()
     }
 
-    /// 나누기(states.md §8): automatic 은 플랫폼이 한 번에 받는 크기, fixed(n) 은 n. disabled·fixed 가 그 크기를 넘으면 아무것도 보내지 않는다.
+    /// 나누기(states.md §8)는 `WriteJob.chunkSize` 가 이 연결의 write 한도(`writeLimitsFlow`)로 정한다. 포트에 다시 묻지 않는다.
     /// 작업 대기는 마지막 줄의 한 번뿐이다(앞의 진입 검사는 어댑터가 `unknown` 일 때만 기다린다). 호출자가 취소돼도 나머지 조각은 끝까지 나간다
     package func write(_ characteristic: CharacteristicRef, value: Data, options: WriteOptions) async throws -> WriteReceipt {
         let portRef = try await admitGatt(characteristic)
-        guard let port = peripheral else {
-            // 방어 검사: Ready 면 기기 객체가 있다(states.md §5 NOT_CONNECTED)
+        guard let limits = writeLimitsFlow.value else {
+            // 방어 검사: Ready 면 기기 객체와 write 한도가 있다(states.md §5 NOT_CONNECTED)
             throw BLEError(failure: BLEFailure(code: .notConnected, message: "연결이 없다"))
         }
-        let platformMax = port.maximumWriteValueLength(for: options.mode)
-        let size: Int
-        switch options.chunking {
-        case .automatic:
-            size = platformMax
-        case .disabled:
-            size = value.count
-        case .fixed(let bytes):
-            guard bytes >= 1 else {
-                throw BLEError(failure: BLEFailure(code: .payloadTooLarge, message: "나누기 크기는 1 이상이어야 한다"))
-            }
-            size = bytes
-        }
-        if options.chunking != .automatic, size > platformMax {
-            throw BLEError(failure: BLEFailure(
-                code: .payloadTooLarge,
-                message: "한 번에 보낼 수 있는 \(platformMax)바이트를 넘는다(\(size)바이트). 나누기를 automatic 으로 바꾼다"
-            ))
-        }
+        let size = try WriteJob.chunkSize(options.chunking, valueCount: value.count, limit: limits.maximum(for: options.mode))
         let chunks = WriteJob.split(value, limit: size)
         let job = WriteJob(
             chunks: chunks,

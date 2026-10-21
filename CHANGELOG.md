@@ -1,5 +1,20 @@
 # Changelog
 
+## 미출시
+
+### Breaking changes
+
+- `BLESession` 에 `writeLimits: AsyncStream<WriteLimits?>` 가 생겼다(CANDIDATE-5). Android `BleSession.writeLimits` 와 같은 뜻이다.
+  - 값은 방식별로 코어가 write 를 나눌 때 쓰는 최대 바이트다(`WriteLimits.withResponse` · `withoutResponse`). 자동 나누기의 조각 크기와 `.disabled` · `.fixed` 의 한도가 이 값이다.
+  - Ready 게시 직전에 정해 연결 동안 바꾸지 않는다. Ready 를 떠나면(Disconnecting · Recovering · Disconnected) `nil` 이다. client 를 닫아도 `nil` 로 끝난다.
+  - **fake session 작성자 영향**: `BLESession` 을 직접 구현한 가짜는 컴파일이 깨진다(저장소 안 예: `Samples/Demo/Tests` 의 `FakeSession`, Demo 가 0.2.2 고정을 풀 때). 프로퍼티를 더한다.
+
+```swift
+var writeLimits: AsyncStream<WriteLimits?> {
+    AsyncStream { $0.yield(WriteLimits(withResponse: 182, withoutResponse: 182)) }
+}
+```
+
 ## 0.3.0 (2026-10-12)
 
 ### Breaking changes

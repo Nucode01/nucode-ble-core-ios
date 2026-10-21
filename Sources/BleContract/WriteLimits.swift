@@ -1,17 +1,27 @@
 /// MTU·write 한도 형식(CANDIDATE-33·CANDIDATE-5)과, iOS 코어에 아직 없는 기능을 쓰는 draft 판정의 한 곳
 extension Scenario {
-    /// expect 에 `writeLimits`가 있다. `await writeLimits`도 expect 를 요구하므로 이것으로 충분하다
-    public var usesWriteLimits: Bool {
-        expect[.writeLimits] != nil
-    }
-
     /// iOS 코어에 아직 없는 기능을 쓰는 draft 면 그 이유, 아니면 nil.
     /// sim·device 시험이 이 시나리오의 실패를 known issue 로 둔다. 구현 뒤 통과하면 시험이 알린다
     public var pendingIosSupport: String? {
         guard status == .draft else { return nil }
         if usesDescriptors { return "CANDIDATE-32 descriptor" }
-        if usesWriteLimits { return "CANDIDATE-5 writeLimits" }
         return nil
+    }
+}
+
+extension ContractLog {
+    /// `writeLimits` 레인 기록. 값이 있으면 `<withResponse>/<withoutResponse>`(10진수), 없으면 `null`
+    public static func renderWriteLimits(_ limits: (withResponse: Int, withoutResponse: Int)?) -> String {
+        guard let limits else { return "null" }
+        return "\(limits.withResponse)/\(limits.withoutResponse)"
+    }
+}
+
+extension ScenarioObserver {
+    /// `writeLimits` 레인. 첫 값(`null`)도 넣는다. 시나리오의 `expect`에 이 레인이 있을 때만 남는다
+    public func writeLimits(_ limits: (withResponse: Int, withoutResponse: Int)?) {
+        let entry = ContractLog.renderWriteLimits(limits)
+        recorder.update(lane: .writeLimits) { $0.log.append(entry, to: .writeLimits) }
     }
 }
 

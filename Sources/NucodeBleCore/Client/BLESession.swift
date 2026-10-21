@@ -10,6 +10,8 @@ public protocol BLESession: AnyObject, Sendable {
     var services: AsyncStream<[GATTService]> { get }
     /// 이 연결에서 CCCD 가 확인된 ref 집합. 연결이 없으면 빈다(CANDIDATE-7)
     var activeSubscriptions: AsyncStream<Set<CharacteristicRef>> { get }
+    /// 방식별 write 한도. Ready 직전에 정해 연결 동안 고정하고, Ready 를 떠나면 nil 이다(CANDIDATE-5)
+    var writeLimits: AsyncStream<WriteLimits?> { get }
 
     /// 연결 시도가 시작되면(OS 가 요청을 받으면) 반환한다. 반환은 "연결됐다"가 아니다(contract/states.md §4).
     func connect(options: ConnectOptions) async throws
@@ -50,6 +52,10 @@ final class SessionHandle: BLESession {
 
     var activeSubscriptions: AsyncStream<Set<CharacteristicRef>> {
         runOnCore { [session] in session.activeSubscriptionsFlow.subscribe() }
+    }
+
+    var writeLimits: AsyncStream<WriteLimits?> {
+        runOnCore { [session] in session.writeLimitsFlow.subscribe() }
     }
 
     func connect(options: ConnectOptions) async throws {

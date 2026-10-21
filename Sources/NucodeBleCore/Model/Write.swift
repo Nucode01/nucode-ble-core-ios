@@ -33,6 +33,27 @@ public struct WriteOptions: Hashable, Sendable {
     }
 }
 
+/// 연결 하나의 방식별 한 번 최대 바이트. 자동 나누기의 조각 크기이고 `.disabled` · `.fixed` 의 한도다.
+/// Ready 직전에 정해져 그 연결 동안 바뀌지 않는다(`BLESession.writeLimits`)
+public struct WriteLimits: Hashable, Sendable {
+    /// 응답 있는 쓰기의 한 번 최대 바이트
+    public let withResponse: Int
+    /// 응답 없는 쓰기의 한 번 최대 바이트
+    public let withoutResponse: Int
+    /// 시험 · 가짜 구현용. 라이브러리는 연결이 Ready 가 될 때 만든다
+    public init(withResponse: Int, withoutResponse: Int) {
+        self.withResponse = withResponse
+        self.withoutResponse = withoutResponse
+    }
+
+    func maximum(for mode: WriteMode) -> Int {
+        switch mode {
+        case .withResponse: withResponse
+        case .withoutResponse: withoutResponse
+        }
+    }
+}
+
 /// 쓰기 결과가 보장하는 것
 public enum DeliverySemantics: Hashable, Sendable {
     /// 기기가 받았다고 확인했다(`.withResponse`)

@@ -123,7 +123,7 @@ BLEError                      ← throw 되는 타입
 | 스트림 | 종류 | 구독하면 |
 |---|---|---|
 | `client.adapterStates` · `client.scanStates` | 상태 | 현재 값을 먼저 받고, 이후 바뀔 때마다 받습니다. 값을 버리지 않습니다 |
-| `session.connectionStates` · `session.services` · `session.activeSubscriptions` | 상태 | 같음 |
+| `session.connectionStates` · `session.services` · `session.activeSubscriptions` · `session.writeLimits` | 상태 | 같음 |
 | `client.scanResults` · `client.events` · `session.notifications(for:)` | 이벤트 | 구독한 뒤에 생긴 것만 받습니다. 받는 쪽이 느려 256개가 쌓이면 오래된 것부터 버립니다 |
 
 - 스트림은 **프로퍼티를 읽는 순간 구독이 등록됩니다**(동기). 그래서 명령 전에 얻어 두면 그 뒤의 값을 놓치지 않습니다.

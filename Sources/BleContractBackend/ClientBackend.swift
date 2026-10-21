@@ -73,7 +73,8 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
             scan: client.scanStates,
             results: client.scanResults,
             services: session.services,
-            active: session.activeSubscriptions
+            active: session.activeSubscriptions,
+            writeLimits: session.writeLimits
         )
         let tasks = [
             Task {
@@ -111,6 +112,11 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
             Task { [symbols] in
                 for await refs in streams.active {
                     observer.activeSubscriptions(refs.compactMap { symbols[Key(service: $0.service.uuid, characteristic: $0.uuid)] })
+                }
+            },
+            Task {
+                for await limits in streams.writeLimits {
+                    observer.writeLimits(limits.map { ($0.withResponse, $0.withoutResponse) })
                 }
             },
         ]
