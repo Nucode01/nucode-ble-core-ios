@@ -170,6 +170,15 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
         return try await outcome { try await session.unsubscribe(ref) }
     }
 
+    /// iOS 코어에 descriptor API 가 아직 없다(CANDIDATE-32). 결과 줄은 `fail EXCEPTION:BackendError`
+    public func readDescriptor(_ target: DescriptorTarget) async throws -> CallOutcome {
+        throw BackendError.unsupported("readDescriptor")
+    }
+
+    public func writeDescriptor(_ target: DescriptorTarget, bytes: [UInt8]) async throws -> CallOutcome {
+        throw BackendError.unsupported("writeDescriptor")
+    }
+
     public func startScan(filter: BleContract.ScanFilter) async throws -> CallOutcome {
         let uuids = try filter.services.map { ref -> BLEUUID in
             guard let uuid = BLEUUID(string: ref.uuid) else { throw ContractError("not a UUID: \(ref.uuid)") }

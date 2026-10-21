@@ -2,7 +2,7 @@
 public enum Lane: String, Sendable, CaseIterable {
     case state, result, notify, active
     /// 아래는 확장 레인. 시나리오의 `expect`에 있을 때만 기록·출력한다
-    case adapter, scan, found, services, properties, adTypes, peer
+    case adapter, scan, found, services, properties, descriptors, adTypes, peer
 
     public var isExtension: Bool {
         switch self {
@@ -14,7 +14,7 @@ public enum Lane: String, Sendable, CaseIterable {
     /// 값이 바뀔 때만 의미가 있어 연속 중복을 합치는 레인
     var mergesDuplicates: Bool {
         switch self {
-        case .active, .adapter, .scan, .services, .properties, .adTypes: true
+        case .active, .adapter, .scan, .services, .properties, .descriptors, .adTypes: true
         default: false
         }
     }
@@ -59,7 +59,7 @@ public struct ContractLog: Sendable, Equatable {
         return .fail(reason: "mismatch: " + failed.map(\.rawValue).joined(separator: ","))
     }
 
-    /// `CONTRACT|<플랫폼>|<id>|<레인>|<기록>` 줄들. 레인 순서는 Lane 선언 순서(state, result, notify, active, adapter, scan, found, services, properties, peer)
+    /// `CONTRACT|<플랫폼>|<id>|<레인>|<기록>` 줄들. 레인 순서는 Lane 선언 순서(state, result, notify, active, adapter, scan, found, services, properties, descriptors, adTypes, peer)
     public func lines(platform: String, scenarioId: String) -> [String] {
         Lane.allCases.flatMap { lane in
             self[lane].map { "CONTRACT|\(platform)|\(scenarioId)|\(lane.rawValue)|\($0)" }

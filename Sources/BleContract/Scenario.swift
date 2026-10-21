@@ -102,6 +102,8 @@ public enum CallAction: Sendable, Equatable {
     case write(Characteristic, bytes: [UInt8], withResponse: Bool, chunking: WriteChunking = .automatic)
     case subscribe(Characteristic)
     case unsubscribe(Characteristic)
+    case readDescriptor(DescriptorTarget)
+    case writeDescriptor(DescriptorTarget, bytes: [UInt8])
     case startScan(ScanFilter)
     case stopScan
     case snapshot
@@ -116,6 +118,8 @@ public enum CallAction: Sendable, Equatable {
         case .write(let c, _, _, _): "write \(c.symbol)"
         case .subscribe(let c): "subscribe \(c.symbol)"
         case .unsubscribe(let c): "unsubscribe \(c.symbol)"
+        case .readDescriptor(let d): "readDescriptor \(d.symbol)"
+        case .writeDescriptor(let d, _): "writeDescriptor \(d.symbol)"
         case .startScan: "startScan"
         case .stopScan: "stopScan"
         case .snapshot: "snapshot"
@@ -250,7 +254,7 @@ extension Scenario {
 }
 
 /// 단계 목록을 순서대로 읽는다. async 이름은 앞에서 선언된 것만 await 할 수 있다
-private struct StepParser {
+struct StepParser {
     let profile: PeripheralProfile
     let runsOn: [RunTarget]
     let expectLanes: Set<Lane>
@@ -358,6 +362,8 @@ private struct StepParser {
                 throw ContractError("\(o.path).chunking: unknown value \"\(chunkingName)\"")
             }
             action = .write(c, bytes: bytes, withResponse: mode == "withResponse", chunking: chunking)
+        case "readDescriptor", "writeDescriptor":
+            action = try descriptorCall(name, o, common: common)
         case "startScan":
             try o.only(common.union(["filter"]))
             action = .startScan(try scanFilter(o))
@@ -484,16 +490,5 @@ private struct StepParser {
         let ms = try o.optionalInt("timeoutMs") ?? Scenario.defaultTimeoutMs
         guard ms > 0 else { throw ContractError("\(o.path).timeoutMs: must be > 0") }
         return ms
-    }
-
-    private func parseHex(_ hex: String, path: String) throws -> [UInt8] {
-        let digits = Array(hex.utf8)
-        // UInt8(_:radix:)는 "+f" 같은 부호를 받아 주므로 글자를 먼저 거른다
-        guard digits.count % 2 == 0, digits.allSatisfy({ Character(Unicode.Scalar($0)).isHexDigit }) else {
-            throw ContractError("\(path): invalid hex \"\(hex)\"")
-        }
-        return stride(from: 0, to: digits.count, by: 2).map { i in
-            UInt8(String(decoding: digits[i..<i + 2], as: UTF8.self), radix: 16)!
-        }
     }
 }

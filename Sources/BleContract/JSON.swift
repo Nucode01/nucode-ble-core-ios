@@ -182,3 +182,15 @@ struct JSONObject {
         try JSONObject(try require(key), path: "\(path).\(key)")
     }
 }
+
+/// 짝수 길이 16진수 문자열을 바이트로. write 의 `hex`, descriptor 의 `value`·`hex`가 쓴다
+func parseHex(_ hex: String, path: String) throws -> [UInt8] {
+    let digits = Array(hex.utf8)
+    // UInt8(_:radix:)는 "+f" 같은 부호를 받아 주므로 글자를 먼저 거른다
+    guard digits.count % 2 == 0, digits.allSatisfy({ Character(Unicode.Scalar($0)).isHexDigit }) else {
+        throw ContractError("\(path): invalid hex \"\(hex)\"")
+    }
+    return stride(from: 0, to: digits.count, by: 2).map { i in
+        UInt8(String(decoding: digits[i..<i + 2], as: UTF8.self), radix: 16)!
+    }
+}

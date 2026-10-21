@@ -8,6 +8,8 @@ public struct Characteristic: Sendable, Equatable {
     public let properties: [String]
     /// 러너만 쓰는 characteristic(기기 제어). 시나리오 호출에는 쓸 수 없다
     public let runnerOnly: Bool
+    /// 이름(`cud`) → 정의(CANDIDATE-32). 정의 파일에 없으면 비어 있다
+    public let descriptors: [String: DescriptorDefinition]
 }
 
 /// 기기 정의 `services` 의 항목
@@ -65,7 +67,7 @@ public struct PeripheralProfile: Sendable, Equatable {
         var result: [String: Characteristic] = [:]
         for symbol in chars.fields.keys.sorted() {
             let c = try chars.object(symbol)
-            try c.only(["service", "uuid", "properties", "runnerOnly"])
+            try c.only(["service", "uuid", "properties", "runnerOnly", "descriptors"])
             let properties = try c.stringArray("properties")
             if let bad = properties.first(where: { !knownProperties.contains($0) }) {
                 throw ContractError("\(c.path).properties: unknown property \"\(bad)\"")
@@ -75,7 +77,8 @@ public struct PeripheralProfile: Sendable, Equatable {
                 service: try c.string("service"),
                 uuid: try c.string("uuid"),
                 properties: properties,
-                runnerOnly: try c.optionalBool("runnerOnly") ?? false
+                runnerOnly: try c.optionalBool("runnerOnly") ?? false,
+                descriptors: c.has("descriptors") ? try DescriptorDefinition.parseAll(try c.object("descriptors")) : [:]
             )
         }
 
