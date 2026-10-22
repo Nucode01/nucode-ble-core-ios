@@ -2,7 +2,7 @@ import BleContract
 import Foundation
 import Testing
 
-/// MTU·write 한도 형식(CANDIDATE-33·CANDIDATE-5): connect 의 `requestedMtu`, `writeLimits`·`androidMtu` 레인, iOS 미구현 draft 판정
+/// MTU·write 한도 형식(CANDIDATE-33·CANDIDATE-5): connect 의 `requestedMtu`, `writeLimits`·`androidMtu` 레인
 @Suite(.needsContract)
 struct WriteLimitsFormatTests {
     static let android = #", "platforms": ["android"]"#
@@ -74,30 +74,14 @@ struct WriteLimitsFormatTests {
         #expect(ContractLog.renderWriteLimits(nil) == "null")
     }
 
-    @Test func pendingIosSupportNamesTheMissingFeature() throws {
-        // iOS 코어가 writeLimits 를 구현해 write-limits draft 는 더 이상 기다리지 않는다
+    @Test func writeLimitsDraftsRunOnIosAndRequestedMtuIsAndroidOnly() throws {
         for id in ["write-limits-ready-and-disconnect", "write-limits-across-recovery"] {
             let s = try Contract.dir.loadScenario(id: id)
             #expect(s.expect[.writeLimits] != nil, "\(id)")
-            #expect(s.pendingIosSupport == nil, "\(id)")
             #expect(s.platforms.contains(.ios), "\(id)")
-        }
-        for id in ["descriptors-discovered", "descriptor-read-write", "descriptor-read-during-link-loss"] {
-            #expect(try Contract.dir.loadScenario(id: id).pendingIosSupport == "CANDIDATE-32 descriptor", "\(id)")
         }
         for id in ["connect-requested-mtu", "connect-requested-mtu-conflict"] {
             #expect(try Contract.dir.loadScenario(id: id).platforms == [.android], "\(id)")
         }
-        #expect(try Contract.dir.loadScenario(id: "connect-ready-disconnect").pendingIosSupport == nil)
-    }
-
-    @Test func pendingIosSupportIsOnlyForDrafts() throws {
-        let json = LoaderRejectionTests.scenario(
-            steps: #"{ "call": "connect" }, { "await": "writeLimits", "is": "*/*" }"#,
-            expect: #"{ "writeLimits": [], "descriptors": [] }"#
-        )
-        #expect(try Contract.scenario(json).pendingIosSupport == "CANDIDATE-32 descriptor")
-        let frozen = json.replacingOccurrences(of: #""status": "draft""#, with: #""status": "frozen""#)
-        #expect(try Contract.scenario(frozen).pendingIosSupport == nil)
     }
 }

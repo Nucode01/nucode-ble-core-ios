@@ -95,12 +95,6 @@ struct ContractSimTests {
     func scenarioPasses(id: String) async throws {
         let report = try await SimContract.run(id: id)
         print(report.lines().joined(separator: "\n"))
-        guard let pending = try SimContract.dir.loadScenario(id: id).pendingIosSupport else {
-            #expect(report.verdict == .pass, "\(id): \(report.verdict)")
-            return
-        }
-        withKnownIssue("iOS \(pending) 구현 전 draft") {
-            #expect(report.verdict == .pass, "\(id): \(report.verdict)")
-        }
+        #expect(report.verdict == .pass, "\(id): \(report.verdict)")
     }
 }

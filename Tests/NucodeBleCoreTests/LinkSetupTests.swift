@@ -58,6 +58,10 @@ private final class ScriptedPeripheral: PeripheralPort {
 
     var services: [NucodeBleCore.ServiceRef] = []
     var characteristics: [DiscoveredCharacteristic] = []
+    /// 포트 characteristic 참조마다 답할 descriptor. 없으면 빈 목록
+    var descriptors: [CharacteristicRef: [DescriptorRef]] = [:]
+    var descriptorError: PortError?
+    private(set) var descriptorDiscoveries: [CharacteristicRef] = []
     var serviceError: PortError?
     var answersDiscovery = true
     private(set) var discoverArguments: [[BLEUUID]?] = []
@@ -79,6 +83,17 @@ private final class ScriptedPeripheral: PeripheralPort {
     func writeValue(_ data: Data, for characteristic: CharacteristicRef, type: WriteMode) {}
     func maximumWriteValueLength(for type: WriteMode) -> Int { 20 }
     func setNotifyValue(_ enabled: Bool, for characteristic: CharacteristicRef) {}
+
+    func discoverDescriptors(for characteristic: CharacteristicRef) {
+        descriptorDiscoveries.append(characteristic)
+        fakeEmit(self) { device in
+            let found = device.descriptorError == nil ? device.descriptors[characteristic] ?? [] : []
+            device.delegate?.peripheral(device, didDiscoverDescriptors: found, for: characteristic, error: device.descriptorError)
+        }
+    }
+
+    func readValue(for descriptor: DescriptorRef) {}
+    func writeValue(_ data: Data, for descriptor: DescriptorRef) {}
 }
 
 private func describe(_ state: ConnectionState) -> String {
@@ -193,6 +208,54 @@ final class LinkSetupTests: XCTestCase {
         var diagnostics: [String] = []
         for await event in events { if case .diagnostic(let code, _) = event { diagnostics.append(code.value) } }
         XCTAssertEqual(diagnostics, ["DUPLICATE_CHARACTERISTIC_REFERENCE"])
+    }
+
+    // MARK: descriptor 탐색 (CANDIDATE-32)
+
+    /// characteristic 마다 descriptor 를 탐색 순서대로 담고 같은 UUID 는 0, 1 로 가른다. 포트 참조가 겹친 characteristic 은 한 번만 묻는다
+    func testDescriptorsAreDiscoveredInOrderWithInstanceIndex() async throws {
+        let central = scripted()
+        let port = central.peripheral.characteristics[0].ref
+        let cpf = BLEUUID(string: "2904")!, ccc = BLEUUID(string: "2902")!
+        central.peripheral.descriptors[port] = [
+            DescriptorRef(characteristic: port, uuid: ccc),
+            DescriptorRef(characteristic: port, uuid: cpf, instanceIndex: 0),
+            DescriptorRef(characteristic: port, uuid: cpf, instanceIndex: 1),
+        ]
+        let (client, session) = start(central)
+        _ = try await client.connect(id, options: ConnectOptions())
+        let ready = await waitUntil { if case .ready = session.state.value { return true } else { return false } }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(central.peripheral.descriptorDiscoveries, [port], "겹친 포트 참조는 한 번만 묻는다")
+        let characteristics = try XCTUnwrap(session.services.first?.characteristics)
+        for characteristic in characteristics {
+            XCTAssertEqual(characteristic.descriptors, [
+                DescriptorRef(characteristic: characteristic.ref, uuid: ccc),
+                DescriptorRef(characteristic: characteristic.ref, uuid: cpf, instanceIndex: 0),
+                DescriptorRef(characteristic: characteristic.ref, uuid: cpf, instanceIndex: 1),
+            ], "공개 참조는 공개 characteristic 참조 위에 만든다")
+        }
+        client.close()
+    }
+
+    func testDescriptorDiscoveryErrorFailsDiscovery() async throws {
+        let central = scripted()
+        central.peripheral.descriptorError = PortError(domain: "CBATTErrorDomain", code: 14, message: "x")
+        let (client, session) = start(central)
+        _ = try await client.connect(id, options: ConnectOptions())
+        _ = await waitUntil { if case .disconnected = session.state.value { return true } else { return false } }
+        XCTAssertEqual(stateName(session), "Disconnected(Failed:SERVICE_DISCOVERY_FAILED)")
+    }
+
+    /// characteristic 이 없으면 descriptor 단계 없이 끝난다
+    func testNoCharacteristicsSkipsDescriptorDiscovery() async throws {
+        let central = scripted(characteristicCount: 0)
+        let (client, session) = start(central)
+        _ = try await client.connect(id, options: ConnectOptions())
+        let ready = await waitUntil { if case .ready = session.state.value { return true } else { return false } }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(central.peripheral.descriptorDiscoveries, [])
+        client.close()
     }
 
     // MARK: 탐색 실패

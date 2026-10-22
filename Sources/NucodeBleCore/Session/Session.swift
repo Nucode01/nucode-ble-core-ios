@@ -39,11 +39,12 @@ package final class Session {
     private var cleanupDeadline: Task<Void, Never>?
     private var settleDeadline: Task<Void, Never>?
     private var disconnectWaiter: Waiter<Void>?
-    private let context: SessionContext
+    let context: SessionContext
 
-    // GATT 명령. 참조는 공개(instanceIndex) 쪽과 플랫폼(포트) 쪽을 오간다
-    private let operations: OperationQueue
+    // GATT 명령. 참조는 공개(instanceIndex) 쪽과 플랫폼(포트) 쪽을 오간다. descriptor 명령은 SessionDescriptors.swift
+    let operations: OperationQueue
     private var portRefs: [CharacteristicRef: CharacteristicRef] = [:]
+    private(set) var portDescriptorRefs: [DescriptorRef: DescriptorRef] = [:]
     private var publicRefs: [CharacteristicRef: CharacteristicRef] = [:]
     private var activeSet: Set<CharacteristicRef> = []
     /// subscribe 가 접수돼 아직 끝나지 않았다. 알림이 확인 콜백보다 먼저 올 수 있어 전달 대상에 든다
@@ -54,7 +55,8 @@ package final class Session {
         self.peripheralID = peripheralID
         self.context = context
         operations = OperationQueue(clock: context.clock, timeoutMilliseconds: Deadlines.operation)
-        operations.onPoison = { [weak self] failure in self?.operationsPoisoned(failure) }
+        // 큐 기한이 지났다. 그 세대는 다시 쓰지 않고 링크를 끊는다
+        operations.onPoison = { [weak self] failure in self?.dispatch(.operationsPoisoned(failure: failure)) }
         context.adapter.observe { [weak self] adapter in self?.adapterChanged(adapter) }
     }
 
@@ -102,7 +104,7 @@ package final class Session {
     /// 할 일을 실행할 때만 필요한 값. 상태 판단에는 쓰이지 않는다
     private struct Inputs {
         var abortError: (any Error)?
-        var discovered: (refs: [CharacteristicRef: CharacteristicRef], services: [GATTService])?
+        var discovered: (refs: [CharacteristicRef: CharacteristicRef], descriptorRefs: [DescriptorRef: DescriptorRef], services: [GATTService])?
     }
 
     /// 새 상태를 먼저 저장하고 할 일을 순서대로 실행한다. 실행 중 들어온 사건은 저장된 새 상태 위에서 step 한다
@@ -134,8 +136,7 @@ package final class Session {
             let created = ConnectAttempt(generation: generation)
             attempt = created
             begin(created)
-        case .joinAttempt, .rejectConnect, .awaitDisconnect:
-            break
+        case .joinAttempt, .rejectConnect, .awaitDisconnect: break
         case .abortAttempt(let generation):
             guard let attempt, attempt.generation == generation else { break }
             self.attempt = nil
@@ -158,10 +159,7 @@ package final class Session {
         case .cancelTimer(let kind):
             cancelTimer(kind)
         case .cancelTimers:
-            cancelTimer(.link)
-            cancelTimer(.configuration)
-            cancelTimer(.cleanup)
-            cancelTimer(.adapterSettle)
+            for kind: ConnectionCore.TimerKind in [.link, .configuration, .cleanup, .adapterSettle] { cancelTimer(kind) }
         case .startDiscovery(let generation):
             guard let peripheral else { break }
             let created = LinkSetup(
@@ -179,6 +177,7 @@ package final class Session {
             setup = nil
             guard let discovered = inputs.discovered else { break }
             portRefs = discovered.refs
+            portDescriptorRefs = discovered.descriptorRefs
             publicRefs = [:]
             for (publicRef, portRef) in discovered.refs.sorted(by: { $0.key.instanceIndex < $1.key.instanceIndex }) where publicRefs[portRef] == nil {
                 publicRefs[portRef] = publicRef
@@ -363,9 +362,13 @@ package final class Session {
 
     // MARK: peripheral 콜백 (`p === peripheral` 과 세대가 맞을 때만)
 
+    /// 탐색 콜백을 받을 LinkSetup. 이 기기 · 이 세대의 탐색 중이 아니면 nil
+    func discoveringSetup(_ candidate: any PeripheralPort, generation: UInt64) -> LinkSetup? {
+        ConnectionCore.acceptsDiscoveryCallback(core, sameDevice: isLive(candidate), generation: generation) ? setup : nil
+    }
+
     package func peripheralDidDiscoverServices(_ candidate: any PeripheralPort, generation: UInt64, services: [ServiceRef], error: PortError?) {
-        guard ConnectionCore.acceptsDiscoveryCallback(core, sameDevice: isLive(candidate), generation: generation) else { return }
-        setup?.didDiscoverServices(services, error: error)
+        discoveringSetup(candidate, generation: generation)?.didDiscoverServices(services, error: error)
     }
 
     package func peripheralDidDiscoverCharacteristics(
@@ -375,8 +378,7 @@ package final class Session {
         for service: ServiceRef,
         error: PortError?
     ) {
-        guard ConnectionCore.acceptsDiscoveryCallback(core, sameDevice: isLive(candidate), generation: generation) else { return }
-        setup?.didDiscoverCharacteristics(characteristics, for: service, error: error)
+        discoveringSetup(candidate, generation: generation)?.didDiscoverCharacteristics(characteristics, for: service, error: error)
     }
 
     // MARK: LinkSetup → Configuring → Ready
@@ -388,7 +390,7 @@ package final class Session {
         case .success(let found):
             dispatch(
                 .discoveryFinished(generation: generation, failure: nil),
-                Inputs(discovered: (refs: setup?.portRefs ?? [:], services: found))
+                Inputs(discovered: (refs: setup?.portRefs ?? [:], descriptorRefs: setup?.portDescriptorRefs ?? [:], services: found))
             )
         }
     }
@@ -405,11 +407,6 @@ package final class Session {
         guard effects.contains(where: { if case .awaitDisconnect = $0 { true } else { false } }) else { return }
         try? await disconnectWaiter?.value()
     }
-
-    /// 큐 기한이 지났다. 그 세대는 다시 쓰지 않고 링크를 끊는다
-    private func operationsPoisoned(_ failure: BLEFailure) {
-        dispatch(.operationsPoisoned(failure: failure))
-    }
 }
 
 // MARK: GATT 명령: read, subscribe, 알림
@@ -418,7 +415,7 @@ extension Session {
     /// 진입 검사(states.md §5 명령 진입 검사 순서): 닫힘 → 어댑터(§6) → 세션 Ready 아님(`NOT_READY`) → 참조 없음. 통과하면 포트 참조.
     /// 판정은 `ConnectionCore.gattAdmission` 이 한다. 어댑터가 `unknown` 일 때만 판정을 기다리고(§6, connect 와 같은 대기),
     /// 기다린 뒤의 확인은 모두 대기 이후에 한다. 확인과 큐 접수 사이에는 `await` 가 없다
-    private func admitGatt(_ characteristic: CharacteristicRef) async throws -> CharacteristicRef {
+    func admitGatt(_ characteristic: CharacteristicRef) async throws -> CharacteristicRef {
         if case .awaitAdapterDecision = ConnectionCore.gattAdmission(core, adapter: context.adapter.current) {
             let gate = context.adapter.gate()
             try await withTaskCancellationHandler {
@@ -543,7 +540,7 @@ extension Session {
 
     // MARK: 콜백 (`p === peripheral` 과 세대가 맞을 때만)
 
-    private func acceptsGattCallback(_ candidate: any PeripheralPort, generation: UInt64) -> Bool {
+    func acceptsGattCallback(_ candidate: any PeripheralPort, generation: UInt64) -> Bool {
         ConnectionCore.acceptsGattCallback(core, sameDevice: isLive(candidate), generation: generation)
     }
 

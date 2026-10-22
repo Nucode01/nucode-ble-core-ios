@@ -117,6 +117,38 @@ func request(_ command: Data, over session: any BLESession, timeout: Duration = 
 - 응답 스트림은 **write 전에** 엽니다. 기기가 write 확인보다 응답을 먼저 보낼 수 있습니다.
 - 여러 요청을 동시에 보내면 응답이 어느 요청의 것인지 알 수 없습니다. 기기 프로토콜에 요청 ID 가 없다면 요청을 한 번에 하나씩 보내세요(앱 쪽 actor 로 직렬화).
 
+## descriptor 읽기 · 쓰기
+
+<!-- snippet: descriptors -->
+```swift
+// 탐색 결과에 characteristic 마다 descriptor 가 탐색 순서대로 있다(Ready 시점에 채워져 있다)
+let userDescription = BLEUUID(string: "2901")!
+let descriptors = services.flatMap(\.characteristics).first { $0.ref == NUS.tx }?.descriptors ?? []
+if let cud = descriptors.first(where: { $0.uuid == userDescription }) {
+    let name = try await session.readDescriptor(cud) // 원본 bytes. 0x2901 은 UTF-8 문자열이다
+    print("user description:", String(decoding: name, as: UTF8.self))
+}
+
+// 참조는 값이라 직접 만들어도 된다. 같은 UUID 가 여럿이면 instanceIndex 로 고른다(기본 0)
+let vendor = DescriptorRef(characteristic: NUS.tx, uuid: BLEUUID(string: "6e7a0004-5c3a-4b8e-9d1f-0a1b2c3d4e5f")!)
+try await session.writeDescriptor(vendor, Data([0x01])) // 응답 있는 쓰기 한 번, 나누지 않는다
+
+// CCCD(0x2902)는 읽기만 한다. 쓰면 DESCRIPTOR_WRITE_NOT_ALLOWED. 구독은 subscribe · unsubscribe 로 바꾼다
+let cccd = DescriptorRef(characteristic: NUS.tx, uuid: BLEUUID(string: "2902")!)
+let state = try await session.readDescriptor(cccd) // 구독 중이면 [0x01, 0x00]
+```
+
+- 탐색 결과의 `GATTCharacteristic.descriptors` 에 descriptor 가 탐색 순서대로 있습니다. CCCD(0x2902)도 숨기지 않습니다.
+  iOS 는 characteristic 마다 descriptor 를 따로 물어야 해서 Ready 가 그만큼 늦어집니다.
+- read · write 는 characteristic read · write 와 같은 줄에서 하나씩 실행합니다. 5초 제한, 끊김 때의 `OPERATION_INVALIDATED`, 진입 검사 순서도 같습니다.
+  탐색 결과에 없는 descriptor 는 `CHARACTERISTIC_NOT_FOUND` 입니다.
+- 값은 원본 bytes 입니다. 0x2901 문자열이나 0x2904 형식을 해석하는 것은 앱 몫입니다.
+- write 는 응답 있는 쓰기 한 번이고 나누지 않습니다. 512바이트를 넘으면 아무것도 보내지 않고 `PAYLOAD_TOO_LARGE` 입니다.
+- **CCCD 에는 쓸 수 없습니다.** iOS 는 CCCD 를 구독 API 로만 바꾸게 합니다. 그래서 `writeDescriptor` 는 보내기 전에 `DESCRIPTOR_WRITE_NOT_ALLOWED` 를 던지고,
+  구독 상태는 바뀌지 않습니다. Android 판 라이브러리는 CCCD 쓰기를 받아 구독 상태를 맞춥니다(플랫폼 차이).
+- iOS 는 일부 descriptor 값을 숫자 · 문자열로 바꿔 줍니다. 라이브러리가 다시 bytes 로 바꿉니다(숫자는 2바이트 little-endian, 문자열은 UTF-8).
+  기기가 0x2901 에 UTF-8 이 아닌 bytes 를 넣었으면 원래 값을 되살릴 수 없습니다(iOS 한계).
+
 ## 지금 켜져 있는 구독 보기
 
 <!-- snippet: active-subscriptions -->

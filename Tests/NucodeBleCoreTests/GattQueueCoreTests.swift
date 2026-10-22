@@ -45,8 +45,10 @@ final class GattQueueCoreTests: XCTestCase {
     /// 사건의 모든 case 를 `default` 없이 이름 붙인다. 취소류 case 가 생기면 컴파일이 이 시험을 다시 보게 한다
     private func name(_ event: Core.Event) -> String {
         switch event {
-        case .submit(let kind, _): "submit(\(kind.label))"
+        case .submit(let kind, _, _): "submit(\(kind.label))"
         case .readResponded: "readResponded"
+        case .descriptorReadResponded: "descriptorReadResponded"
+        case .descriptorWriteResponded: "descriptorWriteResponded"
         case .notifyStateResponded(_, let isNotifying, _): "notifyStateResponded(\(isNotifying))"
         case .writeResponded: "writeResponded"
         case .readyToSendWithoutResponse: "readyToSendWithoutResponse"
@@ -193,6 +195,54 @@ final class GattQueueCoreTests: XCTestCase {
     }
 
     private func readingState() -> Core.State { given([read(a)]) }
+
+    // MARK: descriptor 작업 (CANDIDATE-32)
+
+    private lazy var cud = DescriptorRef(characteristic: a, uuid: BLEUUID(string: "2901")!)
+    private lazy var echo = DescriptorRef(characteristic: a, uuid: BLEUUID(string: "2901")!, instanceIndex: 1)
+
+    private func readDescriptor(_ ref: DescriptorRef) -> Core.Event {
+        .submit(kind: .readDescriptor, characteristic: ref.characteristic, descriptor: ref)
+    }
+
+    private func writeDescriptor(_ ref: DescriptorRef) -> Core.Event {
+        .submit(kind: .writeDescriptor, characteristic: ref.characteristic, descriptor: ref)
+    }
+
+    /// 응답은 진행 중인 같은 종류 · 같은 descriptor 작업만 끝낸다. 같은 characteristic 의 read 응답과 섞이지 않는다
+    func test_descriptorCallbackMatching() {
+        let reading = given([readDescriptor(cud)])
+        XCTAssertEqual(Core.current(reading)?.descriptor, cud)
+        check("D1", reading, .descriptorReadResponded(cud, value: Data([7]), failure: nil), ["cancelDeadline", "complete(#1,ok(7))", "advance"])
+        check("D1", reading, .descriptorReadResponded(cud, value: nil, failure: failure()), ["cancelDeadline", "complete(#1,GATT_STATUS_FAILED)", "advance"])
+        check("D1", reading, .descriptorReadResponded(echo, value: Data(), failure: nil), ["unmatched"])
+        check("D1", reading, value(a), ["unmatched"])
+        check("D1", reading, .descriptorWriteResponded(cud, failure: nil), ["unmatched"])
+        check("D1", readingState(), .descriptorReadResponded(cud, value: Data(), failure: nil), ["unmatched"])
+        check("D1", fresh(), .descriptorReadResponded(cud, value: Data(), failure: nil), ["unmatched"])
+
+        let writing = given([writeDescriptor(echo)])
+        check("D2", writing, .descriptorWriteResponded(echo, failure: nil), ["cancelDeadline", "complete(#1,ok)", "advance"])
+        check("D2", writing, .descriptorWriteResponded(echo, failure: failure()), ["cancelDeadline", "complete(#1,GATT_STATUS_FAILED)", "advance"])
+        check("D2", writing, .descriptorWriteResponded(cud, failure: nil), ["unmatched"])
+        check("D2", writing, .writeResponded(a), ["unmatched"])
+        check("D2", writing, .descriptorReadResponded(echo, value: Data(), failure: nil), ["unmatched"])
+    }
+
+    /// 기한 · poison · 무효화는 작업 종류와 무관하다
+    func test_descriptorDeadlineAndInvalidate() {
+        var state = given([readDescriptor(cud), read(b)])
+        state = check("D3", state, .deadlineFired(token: 1), ["judgeLater(#1)"])
+        let (_, effects) = Core.step(state, .deadlineJudged(1))
+        XCTAssertEqual(names(effects), ["complete(#1,OPERATION_TIMEOUT)", "complete(#2,OPERATION_INVALIDATED)", "poison(OPERATION_TIMEOUT)"], "D3")
+        if case .complete(_, .failure(let f)) = effects[0] {
+            XCTAssertEqual(f.message, "readDescriptor 이 5000ms 안에 끝나지 않았다", "D3")
+        }
+        let dropped = BLEFailure(code: .operationInvalidated, message: "끊김")
+        check("D4", given([writeDescriptor(echo), readDescriptor(cud)]), .invalidate(dropped), [
+            "cancelDeadline", "complete(#1,OPERATION_INVALIDATED)", "complete(#2,OPERATION_INVALIDATED)",
+        ])
+    }
 
     // MARK: write 조각
 

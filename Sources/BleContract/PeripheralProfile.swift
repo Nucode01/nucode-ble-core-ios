@@ -8,8 +8,13 @@ public struct Characteristic: Sendable, Equatable {
     public let properties: [String]
     /// 러너만 쓰는 characteristic(기기 제어). 시나리오 호출에는 쓸 수 없다
     public let runnerOnly: Bool
-    /// 이름(`cud`) → 정의(CANDIDATE-32). 정의 파일에 없으면 비어 있다
-    public let descriptors: [String: DescriptorDefinition]
+    /// descriptor 정의(CANDIDATE-32), 정의 파일에 적힌 순서(sim 가짜 기기의 탐색 순서). 정의 파일에 없으면 비어 있다
+    public let descriptors: [DescriptorDefinition]
+
+    /// 이름(`cud`)의 정의. 없으면 nil
+    public func descriptor(named name: String) -> DescriptorDefinition? {
+        descriptors.first { $0.name == name }
+    }
 }
 
 /// 기기 정의 `services` 의 항목
@@ -78,7 +83,7 @@ public struct PeripheralProfile: Sendable, Equatable {
                 uuid: try c.string("uuid"),
                 properties: properties,
                 runnerOnly: try c.optionalBool("runnerOnly") ?? false,
-                descriptors: c.has("descriptors") ? try DescriptorDefinition.parseAll(try c.object("descriptors")) : [:]
+                descriptors: c.has("descriptors") ? try DescriptorDefinition.parseAll(try c.object("descriptors")) : []
             )
         }
 

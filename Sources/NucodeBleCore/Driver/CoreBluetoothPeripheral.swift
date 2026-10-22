@@ -14,6 +14,8 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
     private var serviceRefs: [ObjectIdentifier: ServiceRef] = [:]
     private var characteristics: [CharacteristicRef: CBCharacteristic] = [:]
     private var characteristicRefs: [ObjectIdentifier: CharacteristicRef] = [:]
+    private var descriptors: [DescriptorRef: CBDescriptor] = [:]
+    private var descriptorRefs: [ObjectIdentifier: DescriptorRef] = [:]
 
     init(_ peripheral: CBPeripheral) {
         cbPeripheral = peripheral
@@ -87,10 +89,35 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         cbPeripheral.setNotifyValue(enabled, for: cb)
     }
 
+    func discoverDescriptors(for characteristic: CharacteristicRef) {
+        guard let cb = characteristics[characteristic] else {
+            failLater { $0.delegate?.peripheral($0, didDiscoverDescriptors: [], for: characteristic, error: Self.unknownReference) }
+            return
+        }
+        cbPeripheral.discoverDescriptors(for: cb)
+    }
+
+    func readValue(for descriptor: DescriptorRef) {
+        guard let cb = descriptors[descriptor] else {
+            failLater { $0.delegate?.peripheral($0, didUpdateValue: nil, for: descriptor, error: Self.unknownReference) }
+            return
+        }
+        cbPeripheral.readValue(for: cb)
+    }
+
+    /// CCCD 는 core 가 진입 검사에서 막는다(CoreBluetooth 는 CCCD 쓰기에 예외를 낸다)
+    func writeValue(_ data: Data, for descriptor: DescriptorRef) {
+        guard let cb = descriptors[descriptor] else {
+            failLater { $0.delegate?.peripheral($0, didWriteValueFor: descriptor, error: Self.unknownReference) }
+            return
+        }
+        cbPeripheral.writeValue(data, for: cb)
+    }
+
     // MARK: 참조
 
     private static let unknownReference = PortError(
-        domain: "NucodeBleCore", code: -1, message: "플랫폼이 모르는 서비스·characteristic 참조다"
+        domain: "NucodeBleCore", code: -1, message: "플랫폼이 모르는 서비스·characteristic·descriptor 참조다"
     )
 
     /// 동기 호출 안에서 delegate 를 다시 부르지 않도록 큐의 다음 턴으로 미룬다
@@ -123,6 +150,10 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
             characteristics[old] = nil
             characteristicRefs[ObjectIdentifier(cb)] = nil
         }
+        for (old, cb) in descriptors where old.characteristic.service == ref {
+            descriptors[old] = nil
+            descriptorRefs[ObjectIdentifier(cb)] = nil
+        }
         var seen: [BLEUUID: Int] = [:]
         for item in service.characteristics ?? [] {
             guard let uuid = BLEUUID(cbUUID: item.uuid) else { continue }
@@ -131,6 +162,24 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
             let characteristic = CharacteristicRef(service: ref, uuid: uuid, instanceIndex: index)
             characteristics[characteristic] = item
             characteristicRefs[ObjectIdentifier(item)] = characteristic
+            refreshDescriptors(of: item, ref: characteristic)
+        }
+    }
+
+    /// `characteristic.descriptors` 를 훑어 같은 UUID 사이의 순서로 참조를 다시 만든다
+    private func refreshDescriptors(of characteristic: CBCharacteristic, ref: CharacteristicRef) {
+        for (old, cb) in descriptors where old.characteristic == ref {
+            descriptors[old] = nil
+            descriptorRefs[ObjectIdentifier(cb)] = nil
+        }
+        var seen: [BLEUUID: Int] = [:]
+        for item in characteristic.descriptors ?? [] {
+            guard let uuid = BLEUUID(cbUUID: item.uuid) else { continue }
+            let index = seen[uuid, default: 0]
+            seen[uuid] = index + 1
+            let descriptor = DescriptorRef(characteristic: ref, uuid: uuid, instanceIndex: index)
+            descriptors[descriptor] = item
+            descriptorRefs[ObjectIdentifier(item)] = descriptor
         }
     }
 
@@ -189,6 +238,36 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         BLECoreActor.assumeIsolated {
             guard let ref = characteristicRefs[ObjectIdentifier(characteristic)] else { return }
             delegate?.peripheral(self, didUpdateNotificationState: notifying, for: ref, error: failure)
+        }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverDescriptorsFor characteristic: CBCharacteristic, error: (any Error)?) {
+        let failure = error.map(PortErrorConversion.portError)
+        nonisolated(unsafe) let characteristic = characteristic
+        BLECoreActor.assumeIsolated {
+            guard let ref = characteristicRefs[ObjectIdentifier(characteristic)] else { return }
+            refreshDescriptors(of: characteristic, ref: ref)
+            let found = (characteristic.descriptors ?? []).compactMap { descriptorRefs[ObjectIdentifier($0)] }
+            delegate?.peripheral(self, didDiscoverDescriptors: failure == nil ? found : [], for: ref, error: failure)
+        }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor descriptor: CBDescriptor, error: (any Error)?) {
+        let failure = error.map(PortErrorConversion.portError)
+        let value = DescriptorValueConversion.bytes(descriptor.value)
+        nonisolated(unsafe) let descriptor = descriptor
+        BLECoreActor.assumeIsolated {
+            guard let ref = descriptorRefs[ObjectIdentifier(descriptor)] else { return }
+            delegate?.peripheral(self, didUpdateValue: value, for: ref, error: failure)
+        }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor descriptor: CBDescriptor, error: (any Error)?) {
+        let failure = error.map(PortErrorConversion.portError)
+        nonisolated(unsafe) let descriptor = descriptor
+        BLECoreActor.assumeIsolated {
+            guard let ref = descriptorRefs[ObjectIdentifier(descriptor)] else { return }
+            delegate?.peripheral(self, didWriteValueFor: ref, error: failure)
         }
     }
 

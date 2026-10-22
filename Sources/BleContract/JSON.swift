@@ -11,39 +11,19 @@ public struct ContractError: Error, CustomStringConvertible, Sendable, Equatable
     public var description: String { message }
 }
 
-/// 엄격한 로더용 JSON 값. Codable 기본 동작은 모르는 키를 조용히 버리므로 트리로 받아 직접 검사한다
-enum JSONValue: Sendable, Equatable, Decodable {
+/// 엄격한 로더용 JSON 값. Codable 기본 동작은 모르는 키를 조용히 버리고 키 순서를 잃으므로 `JSONParser` 로 트리를 받아 직접 검사한다
+enum JSONValue: Sendable, Equatable {
     case null
     case bool(Bool)
     case int(Int)
     case double(Double)
     case string(String)
     case array([JSONValue])
-    case object([String: JSONValue])
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        // JSONDecoder 는 true 를 Int 로, 1 을 Bool 로 읽어 주지 않으므로 이 순서로 타입이 갈린다
-        if c.decodeNil() {
-            self = .null
-        } else if let v = try? c.decode(Bool.self) {
-            self = .bool(v)
-        } else if let v = try? c.decode(Int.self) {
-            self = .int(v)
-        } else if let v = try? c.decode(Double.self) {
-            self = .double(v)
-        } else if let v = try? c.decode(String.self) {
-            self = .string(v)
-        } else if let v = try? c.decode([JSONValue].self) {
-            self = .array(v)
-        } else {
-            self = .object(try c.decode([String: JSONValue].self))
-        }
-    }
+    case object(JSONFields)
 
     static func parse(_ data: Data, source: String) throws -> JSONValue {
         do {
-            return try JSONDecoder().decode(JSONValue.self, from: data)
+            return try JSONParser.parse(data)
         } catch {
             throw ContractError("\(source): invalid JSON (\(error))")
         }
@@ -75,11 +55,11 @@ enum JSONValue: Sendable, Equatable, Decodable {
             out += "]"
         case .object(let o):
             out += "{"
-            for (i, k) in o.keys.sorted().enumerated() {
+            for (i, k) in o.keys.enumerated() {
                 if i > 0 { out += "," }
                 try JSONValue.string(k).write(to: &out)
                 out += ":"
-                try o[k]!.write(to: &out)
+                try o.values[k]!.write(to: &out)
             }
             out += "}"
         }
@@ -101,13 +81,16 @@ enum JSONValue: Sendable, Equatable, Decodable {
 /// JSON 객체 하나와 그 경로. 모든 접근자는 타입이 틀리면 경로를 담아 던진다
 struct JSONObject {
     let fields: [String: JSONValue]
+    /// 파일에 적힌 키 순서
+    let keys: [String]
     let path: String
 
     init(_ value: JSONValue, path: String) throws {
-        guard case .object(let fields) = value else {
+        guard case .object(let object) = value else {
             throw ContractError("\(path): expected object, got \(value.typeName)")
         }
-        self.fields = fields
+        self.fields = object.values
+        self.keys = object.keys
         self.path = path
     }
 

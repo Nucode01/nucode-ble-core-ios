@@ -79,6 +79,23 @@ private final class Recorder: CentralPortDelegate, PeripheralPortDelegate {
         readyCalls += 1
     }
 
+    func peripheral(
+        _ peripheral: any PeripheralPort,
+        didDiscoverDescriptors descriptors: [DescriptorRef],
+        for characteristic: CharacteristicRef,
+        error: PortError?
+    ) {
+        onCoreQueue()
+    }
+
+    func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?) {
+        onCoreQueue()
+    }
+
+    func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {
+        onCoreQueue()
+    }
+
     private nonisolated func onCoreQueue() {
         dispatchPrecondition(condition: .onQueue(bleCoreQueue))
     }

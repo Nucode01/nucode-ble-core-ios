@@ -94,8 +94,10 @@ public struct FailureCode: Hashable, Sendable {
     public static let notReady = FailureCode(value: "NOT_READY", category: .operation, retryability: .newConnectionMayHelp)
     /// 받아들인 작업이 시작하려는 순간 연결이 없다. iOS 에서는 방어용으로만 남아 보통 나지 않는다
     public static let notConnected = FailureCode(value: "NOT_CONNECTED", category: .connection, retryability: .newConnectionMayHelp)
-    /// 참조한 characteristic 이 탐색 결과에 없다
+    /// 참조한 characteristic 이나 descriptor 가 탐색 결과에 없다
     public static let characteristicNotFound = FailureCode(value: "CHARACTERISTIC_NOT_FOUND", category: .attribute, retryability: .never)
+    /// CCCD(0x2902)에 `writeDescriptor` 했다. iOS 는 CCCD 를 `subscribe`·`unsubscribe` 로만 바꾼다(OS 제약). 아무것도 보내지 않았다
+    public static let descriptorWriteNotAllowed = FailureCode(value: "DESCRIPTOR_WRITE_NOT_ALLOWED", category: .attribute, retryability: .never)
     /// 기기가 작업을 거절하거나 실패했다. 권한 · 암호화 부족은 `afterEnvironmentChange`
     public static let gattStatusFailed = FailureCode(value: "GATT_STATUS_FAILED", category: .operation, retryability: .unknown)
     /// 진행 중 작업과 맞지 않는 GATT 콜백이 왔다(진단 이벤트)
@@ -123,7 +125,7 @@ public struct FailureCode: Hashable, Sendable {
         peripheralNotFound, unknownDevice, connectDuringDisconnect, connectionOptionsConflict, linkFailed,
         linkTimeout, serviceDiscoveryStartFailed, serviceDiscoveryFailed, serviceDiscoveryTimeout,
         configurationTimeout, disconnectCleanupTimeout, duplicateCharacteristicReference, notReady,
-        notConnected, characteristicNotFound, gattStatusFailed, gattOperationCallbackMismatch,
+        notConnected, characteristicNotFound, descriptorWriteNotAllowed, gattStatusFailed, gattOperationCallbackMismatch,
         gattOperationDuplicateCallback, operationTimeout, operationInvalidated, payloadTooLarge,
         clientClosed, cleanupFailure, internalTransportError, gattPayloadObserved,
     ]

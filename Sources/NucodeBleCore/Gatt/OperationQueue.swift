@@ -45,6 +45,7 @@ package final class OperationQueue {
     package func submit(
         _ kind: Kind,
         characteristic: CharacteristicRef,
+        descriptor: DescriptorRef? = nil,
         start: @escaping @BLECoreActor () -> Void,
         completion: (@BLECoreActor (Result<Data, BLEError>) -> Void)? = nil,
         job: WriteJob? = nil
@@ -59,7 +60,7 @@ package final class OperationQueue {
         job?.progress = { [weak self] in
             self?.dispatch(.jobProgressed(id))
         }
-        dispatch(.submit(kind: kind, characteristic: characteristic))
+        dispatch(.submit(kind: kind, characteristic: characteristic, descriptor: descriptor))
         return entry.waiter
     }
 
@@ -84,6 +85,20 @@ package final class OperationQueue {
     @discardableResult
     package func didWriteValue(for characteristic: CharacteristicRef, error: PortError?) -> Bool {
         dispatch(.writeResponded(characteristic), writeError: error)
+    }
+
+    /// 진행 중인 readDescriptor 의 응답이면 끝내고 true. 짝이 없으면 false
+    @discardableResult
+    package func didUpdateDescriptorValue(for descriptor: DescriptorRef, value: Data?, error: PortError?) -> Bool {
+        let failure = error.map { GattFailure.status($0, operation: Kind.readDescriptor.label) }
+        return dispatch(.descriptorReadResponded(descriptor, value: value, failure: failure))
+    }
+
+    /// 진행 중인 writeDescriptor 의 응답이면 끝내고 true. 짝이 없으면 false
+    @discardableResult
+    package func didWriteDescriptorValue(for descriptor: DescriptorRef, error: PortError?) -> Bool {
+        let failure = error.map { GattFailure.status($0, operation: Kind.writeDescriptor.label) }
+        return dispatch(.descriptorWriteResponded(descriptor, failure: failure))
     }
 
     /// 응답 없는 write 가 멈춰 있으면 다시 보내게 한다

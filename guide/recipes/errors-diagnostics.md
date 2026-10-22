@@ -76,11 +76,12 @@ iOS 가 내는 코드입니다. "어떻게 오나"의 **던짐**은 명령이 `t
 | `CONFIGURATION_TIMEOUT` | 구독 복원이 10초 안에 안 끝남 | newConnectionMayHelp | 상태 |
 | `NOT_READY` | 세션이 `ready` 가 아님(연결 중 · `recovering` · 끊김 · 링크 유실 직후 1초 포함) | newConnectionMayHelp | 던짐 |
 | `NOT_CONNECTED` | 받아들인 작업이 시작하려는 순간 연결이 없음(iOS 에서는 방어용으로만 남아 있어 보통 나지 않습니다) | newConnectionMayHelp | 던짐 |
-| `CHARACTERISTIC_NOT_FOUND` | 탐색 결과에 없는 참조 | never | 던짐 · 이벤트 |
+| `CHARACTERISTIC_NOT_FOUND` | 탐색 결과에 없는 참조(characteristic · descriptor) | never | 던짐 · 이벤트 |
+| `DESCRIPTOR_WRITE_NOT_ALLOWED` | CCCD(0x2902)에 `writeDescriptor`. 아무것도 안 보냄. 구독은 `subscribe` · `unsubscribe` 로 | never | 던짐 |
 | `GATT_STATUS_FAILED` | 기기가 작업을 거절 · 실패(권한 · 암호화 부족은 afterEnvironmentChange) | unknown | 던짐 · 이벤트(구독 복원) |
 | `OPERATION_TIMEOUT` | 작업이 5초 안에 안 끝남. **연결도 끊습니다** | newConnectionMayHelp | 던짐 |
 | `OPERATION_INVALIDATED` | 대기 · 진행 중 작업이 해제 · 끊김으로 끝남 | newConnectionMayHelp | 던짐 |
-| `PAYLOAD_TOO_LARGE` | 나누기 끔 · 고정 크기가 한 번 최대 크기를 넘음. 아무것도 안 보냄 | never | 던짐 |
+| `PAYLOAD_TOO_LARGE` | 나누기 끔 · 고정 크기가 한 번 최대 크기를 넘음, descriptor 값이 512바이트를 넘음. 아무것도 안 보냄 | never | 던짐 |
 | `CLIENT_CLOSED` | 닫힌 client, 또는 `close()` 가 대기 중 명령을 끝냄(세션 상태는 실패가 아니라 `.disconnected(.clientClosed)`) | never | 던짐 |
 | `DISCONNECT_CLEANUP_TIMEOUT` · `DUPLICATE_CHARACTERISTIC_REFERENCE` · `GATT_OPERATION_CALLBACK_MISMATCH` · `GATT_OPERATION_DUPLICATE_CALLBACK` · `CLEANUP_FAILURE` · `INTERNAL_TRANSPORT_ERROR` | 진단용. 앱이 분기할 일은 거의 없습니다. `INTERNAL_TRANSPORT_ERROR` 는 라이브러리 결함이니 알려 주세요 | — | 이벤트 |
 

@@ -70,6 +70,23 @@ public struct CharacteristicRef: Hashable, Sendable {
     }
 }
 
+/// descriptor 참조(CANDIDATE-32). 값이라 연결 전에 만들어 둘 수 있고 재연결 뒤에도 그대로 쓴다.
+/// 탐색 결과에 없는 참조로 명령하면 `CHARACTERISTIC_NOT_FOUND`
+public struct DescriptorRef: Hashable, Sendable {
+    /// 속한 characteristic
+    public let characteristic: CharacteristicRef
+    /// descriptor UUID(0x2902 CCCD 는 `BLEUUID(string: "2902")`)
+    public let uuid: BLEUUID
+    /// 그 characteristic 안에서 같은 UUID descriptor 중 몇 번째인가(탐색 순서, 0부터). 대부분 0 이다
+    public let instanceIndex: Int
+    /// 참조를 만든다
+    public init(characteristic: CharacteristicRef, uuid: BLEUUID, instanceIndex: Int = 0) {
+        self.characteristic = characteristic
+        self.uuid = uuid
+        self.instanceIndex = instanceIndex
+    }
+}
+
 /// characteristic 이 광고하는 동작(Android `CharacteristicProperty` 와 같은 5종). 정보 제공용이다.
 /// 코어는 이 값으로 read·write·subscribe 를 거르지 않는다(잘못 광고하는 기기도 있다). 거르기는 앱이 정한다
 public enum CharacteristicProperty: Hashable, Sendable, CaseIterable {
@@ -83,10 +100,13 @@ public struct GATTCharacteristic: Hashable, Sendable {
     public let ref: CharacteristicRef
     /// 탐색 때 플랫폼이 알려 준 properties. `Hashable` 비교 대상이다: ref 가 같아도 properties 가 다르면 다른 값이다
     public let properties: Set<CharacteristicProperty>
+    /// 이 characteristic 의 descriptor(탐색 순서). CCCD(0x2902)도 숨기지 않는다. Ready 시점의 탐색 결과에는 채워져 있다
+    public let descriptors: [DescriptorRef]
     /// 시험 · 가짜 구현용. 라이브러리는 탐색 결과에서 만든다
-    public init(ref: CharacteristicRef, properties: Set<CharacteristicProperty>) {
+    public init(ref: CharacteristicRef, properties: Set<CharacteristicProperty>, descriptors: [DescriptorRef] = []) {
         self.ref = ref
         self.properties = properties
+        self.descriptors = descriptors
     }
 }
 

@@ -15,12 +15,17 @@ package enum GattQueueCore {
         case read
         case setNotify(enabled: Bool)
         case write
+        /// descriptor 작업(CANDIDATE-32). write 는 응답 있는 쓰기 한 번이다
+        case readDescriptor
+        case writeDescriptor
 
         package var label: String {
             switch self {
             case .read: "read"
             case .setNotify(let enabled): enabled ? "subscribe" : "unsubscribe"
             case .write: "write"
+            case .readDescriptor: "readDescriptor"
+            case .writeDescriptor: "writeDescriptor"
             }
         }
     }
@@ -30,6 +35,8 @@ package enum GattQueueCore {
         package let id: OperationID
         package let kind: Kind
         package let characteristic: CharacteristicRef
+        /// descriptor 작업의 대상. 그 밖의 작업은 nil
+        package let descriptor: DescriptorRef?
     }
 
     package struct State {
@@ -53,8 +60,10 @@ package enum GattQueueCore {
     }
 
     package enum Event {
-        case submit(kind: Kind, characteristic: CharacteristicRef)
+        case submit(kind: Kind, characteristic: CharacteristicRef, descriptor: DescriptorRef? = nil)
         case readResponded(CharacteristicRef, value: Data?, failure: BLEFailure?)
+        case descriptorReadResponded(DescriptorRef, value: Data?, failure: BLEFailure?)
+        case descriptorWriteResponded(DescriptorRef, failure: BLEFailure?)
         case notifyStateResponded(CharacteristicRef, isNotifying: Bool, failure: BLEFailure?)
         case writeResponded(CharacteristicRef)
         case readyToSendWithoutResponse
@@ -98,10 +107,20 @@ package enum GattQueueCore {
         var next = state
         var effects: [Effect] = []
         switch event {
-        case .submit(let kind, let characteristic):
+        case .submit(let kind, let characteristic, let descriptor):
             next.nextOperationID += 1
-            next.waiting.append(Operation(id: next.nextOperationID, kind: kind, characteristic: characteristic))
+            next.waiting.append(Operation(id: next.nextOperationID, kind: kind, characteristic: characteristic, descriptor: descriptor))
             startNextIfIdle(&next, &effects)
+        case .descriptorReadResponded(let descriptor, let value, let failure):
+            guard let op = next.inFlight, op.kind == .readDescriptor, op.descriptor == descriptor else {
+                return (state, [.unmatched])
+            }
+            finish(&next, &effects, op, failure.map(Outcome.failure) ?? .success(value ?? Data()))
+        case .descriptorWriteResponded(let descriptor, let failure):
+            guard let op = next.inFlight, op.kind == .writeDescriptor, op.descriptor == descriptor else {
+                return (state, [.unmatched])
+            }
+            finish(&next, &effects, op, failure.map(Outcome.failure) ?? .success(Data()))
         case .readResponded(let characteristic, let value, let failure):
             guard let op = next.inFlight, op.kind == .read, op.characteristic == characteristic else {
                 return (state, [.unmatched])

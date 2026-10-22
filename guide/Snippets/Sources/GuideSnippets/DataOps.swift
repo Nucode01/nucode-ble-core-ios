@@ -77,6 +77,27 @@ func request(_ command: Data, over session: any BLESession, timeout: Duration = 
 }
 // endregion
 
+func descriptorExamples(_ session: any BLESession, services: [GATTService]) async throws {
+    // region guide:descriptors
+    // 탐색 결과에 characteristic 마다 descriptor 가 탐색 순서대로 있다(Ready 시점에 채워져 있다)
+    let userDescription = BLEUUID(string: "2901")!
+    let descriptors = services.flatMap(\.characteristics).first { $0.ref == NUS.tx }?.descriptors ?? []
+    if let cud = descriptors.first(where: { $0.uuid == userDescription }) {
+        let name = try await session.readDescriptor(cud) // 원본 bytes. 0x2901 은 UTF-8 문자열이다
+        print("user description:", String(decoding: name, as: UTF8.self))
+    }
+
+    // 참조는 값이라 직접 만들어도 된다. 같은 UUID 가 여럿이면 instanceIndex 로 고른다(기본 0)
+    let vendor = DescriptorRef(characteristic: NUS.tx, uuid: BLEUUID(string: "6e7a0004-5c3a-4b8e-9d1f-0a1b2c3d4e5f")!)
+    try await session.writeDescriptor(vendor, Data([0x01])) // 응답 있는 쓰기 한 번, 나누지 않는다
+
+    // CCCD(0x2902)는 읽기만 한다. 쓰면 DESCRIPTOR_WRITE_NOT_ALLOWED. 구독은 subscribe · unsubscribe 로 바꾼다
+    let cccd = DescriptorRef(characteristic: NUS.tx, uuid: BLEUUID(string: "2902")!)
+    let state = try await session.readDescriptor(cccd) // 구독 중이면 [0x01, 0x00]
+    // endregion
+    _ = state
+}
+
 func activeSubscriptionsExample(_ session: any BLESession) {
     // region guide:active-subscriptions
     // 이 연결에서 기기가 실제로 켜 준 구독. 연결이 끊기면 빈 집합, 재연결 뒤 복원되면 다시 채워진다

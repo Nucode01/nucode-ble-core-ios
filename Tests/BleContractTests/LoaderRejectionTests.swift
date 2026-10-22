@@ -41,6 +41,11 @@ struct LoaderRejectionTests {
 
     private static let raw: [(String, String, String)] = [
         ("unknown top-level key", scenario(extra: #", "extra": 1"#), #"unknown key(s) "extra""#),
+        // 키 순서를 지키는 파서(JSONParser)의 엄격함
+        ("duplicate key", scenario(extra: #", "summary": "a", "summary": "b""#), "invalid JSON"),
+        ("trailing comma", scenario(steps: #"{ "call": "connect", }"#), "invalid JSON"),
+        ("unquoted key", scenario(steps: #"{ call: "connect" }"#), "invalid JSON"),
+        ("content after value", scenario() + " {}", "invalid JSON"),
         ("unknown key in step", scenario(steps: #"{ "call": "connect", "retry": true }"#), #"unknown key(s) "retry""#),
         ("unknown step kind", scenario(steps: #"{ "wait": 100 }"#), "unknown step"),
         ("two step kinds", scenario(steps: #"{ "call": "connect", "sleep": 1 }"#), "unknown step"),
@@ -104,6 +109,12 @@ struct LoaderRejectionTests {
 
     @Test func baseScenarioIsValid() throws {
         #expect(try Contract.scenario(Self.scenario()).steps.count == 1)
+    }
+
+    /// JSONParser 의 문자열 escape: 짧은 escape, `\u`, 서로게이트 쌍
+    @Test func stringEscapesAreDecoded() throws {
+        let json = Self.scenario().replacingOccurrences(of: #""summary": "s""#, with: #""summary": "a\"b\\c\/d\né😀""#)
+        #expect(try Contract.scenario(json).summary == "a\"b\\c/d\né😀")
     }
 
     @Test func writeBytes() throws {

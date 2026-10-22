@@ -1,13 +1,4 @@
-/// MTU·write 한도 형식(CANDIDATE-33·CANDIDATE-5)과, iOS 코어에 아직 없는 기능을 쓰는 draft 판정의 한 곳
-extension Scenario {
-    /// iOS 코어에 아직 없는 기능을 쓰는 draft 면 그 이유, 아니면 nil.
-    /// sim·device 시험이 이 시나리오의 실패를 known issue 로 둔다. 구현 뒤 통과하면 시험이 알린다
-    public var pendingIosSupport: String? {
-        guard status == .draft else { return nil }
-        if usesDescriptors { return "CANDIDATE-32 descriptor" }
-        return nil
-    }
-}
+// MTU·write 한도 형식(CANDIDATE-33·CANDIDATE-5): connect 의 `requestedMtu`, `writeLimits` 레인
 
 extension ContractLog {
     /// `writeLimits` 레인 기록. 값이 있으면 `<withResponse>/<withoutResponse>`(10진수), 없으면 `null`

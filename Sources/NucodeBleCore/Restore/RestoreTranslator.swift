@@ -97,4 +97,12 @@ final class RestoredPeripheralRelay: PeripheralPortDelegate {
         error: PortError?
     ) {}
     func peripheralIsReady(toSendWriteWithoutResponse peripheral: any PeripheralPort) {}
+    func peripheral(
+        _ peripheral: any PeripheralPort,
+        didDiscoverDescriptors descriptors: [DescriptorRef],
+        for characteristic: CharacteristicRef,
+        error: PortError?
+    ) {}
+    func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?) {}
+    func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {}
 }

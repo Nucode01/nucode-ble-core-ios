@@ -39,7 +39,9 @@ CharacteristicRef(
   `BLEUUID(rawValue: UUID)` 로도 만듭니다. 문자열 표기는 늘 소문자 128비트입니다.
 - 대부분의 기기는 UUID 가 겹치지 않으므로 `instanceIndex` 는 0 입니다.
 - 참조는 **값**입니다. 연결 전에 만들어 둘 수 있고(복원 등록에 필요), 연결이 바뀌어도 그대로 씁니다.
-- 탐색 결과(`session.services`)에 없는 참조로 read · write · subscribe 하면 `CHARACTERISTIC_NOT_FOUND` 입니다.
+- descriptor 는 `DescriptorRef(characteristic: CharacteristicRef, uuid: descriptor UUID, instanceIndex: 0)` 로 가리킵니다. `instanceIndex` 는 그 characteristic 안에서
+  같은 UUID descriptor 중 몇 번째인가입니다(기본 0). 탐색 결과의 `GATTCharacteristic.descriptors` 에도 같은 값이 있습니다.
+- 탐색 결과(`session.services`)에 없는 참조로 read · write · subscribe · readDescriptor · writeDescriptor 하면 `CHARACTERISTIC_NOT_FOUND` 입니다.
 
 ## 3.4 `ConnectionState` 생애주기
 

@@ -1,5 +1,33 @@
 # Changelog
 
+## 미출시
+
+### Breaking changes
+
+- `BLESession.readDescriptor(_:)`·`BLESession.writeDescriptor(_:_:)` 가 생겼다(CANDIDATE-32). Android `BleSession.readDescriptor`·`writeDescriptor` 와 같은 뜻이다.
+  - **fake session 작성자 영향**: `BLESession` 을 직접 구현한 가짜는 컴파일이 깨진다. 두 함수를 더한다.
+  - 저장소 안 예: `Samples/Demo/Tests` 의 `FakeSession`. Demo 가 0.2.2 고정을 풀 때 깨진다.
+
+```swift
+func readDescriptor(_ descriptor: DescriptorRef) async throws -> Data { Data() }
+func writeDescriptor(_ descriptor: DescriptorRef, _ value: Data) async throws {}
+```
+
+### Added
+
+- `DescriptorRef(characteristic:uuid:instanceIndex:)`(기본 0)와 `GATTCharacteristic.descriptors`(탐색 순서). Ready 시점의 `services` 에는 descriptor 가 채워져 있다.
+  - `GATTCharacteristic(ref:properties:)` 는 그대로 컴파일된다(`descriptors` 기본값 `[]`).
+  - iOS 는 characteristic 마다 `discoverDescriptors(for:)` 를 불러 Ready 가 그만큼 늦어진다. descriptor 탐색이 실패하면 `SERVICE_DISCOVERY_FAILED` 다.
+- descriptor read · write 는 characteristic read · write 와 같은 큐 · 기한 · 끊김 규칙과 진입 검사 순서를 따른다(contract/states.md §5).
+  - 탐색 결과에 없는 참조는 `CHARACTERISTIC_NOT_FOUND` 다.
+  - write 는 응답 있는 쓰기 한 번이고 나누지 않는다. 512바이트를 넘으면 `PAYLOAD_TOO_LARGE` 다.
+- 실패 코드 `DESCRIPTOR_WRITE_NOT_ALLOWED`(`attribute`, `never`, iOS 전용): CCCD(0x2902)에 `writeDescriptor` 하면 플랫폼 호출 전에 던진다.
+  구독 상태는 바뀌지 않는다. iOS 는 CCCD 를 `subscribe`·`unsubscribe` 로만 바꾼다(Android 는 CCCD 쓰기를 받는다).
+- 값은 원본 bytes 다. `CBDescriptor.value` 의 숫자(0x2900·0x2902·0x2903)는 2바이트 little-endian, 문자열(0x2901)은 UTF-8 로 다시 인코딩한다.
+  기기가 0x2901 에 UTF-8 이 아닌 bytes 를 넣었으면 원본을 잃는다(iOS 한계).
+- 계약 시나리오: sim 46개 PASS. descriptor 4개(`descriptors-discovered`·`descriptor-read-write`·`descriptor-read-during-link-loss`·`descriptor-cccd-write-rejected`)를 포함한다.
+  실기기 실행은 아직 하지 않았다.
+
 ## 0.4.0 (2026-10-22)
 
 ### Breaking changes

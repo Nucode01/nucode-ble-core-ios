@@ -22,11 +22,6 @@ public struct BackendHooks: Sendable {
     }
 }
 
-public enum BackendError: Error, Sendable {
-    /// 아직 공개 API 에 이어지지 않은 호출
-    case unsupported(String)
-}
-
 /// 공개 API(`BLEClient`)를 `ScenarioBackend` 로 잇는 공통 부분. sim 러너와 device 러너가 같은 소스를 쓴다.
 /// `client.start()` 는 부르는 쪽이 `attach` 전에 한다(어댑터·스캔 레인의 첫 값이 `Ready`·`Idle` 이 되도록).
 public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
@@ -37,6 +32,8 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
     private let session: any BLESession
     /// (서비스 UUID, characteristic UUID) → 기호 이름. 기기 정의에 있는 것만
     private let symbols: [Key: String]
+    /// 기호 이름 → (descriptor UUID → 정의의 descriptor 이름). `descriptors` 레인이 쓴다
+    private let descriptorNames: [String: [BLEUUID: String]]
 
     private struct Key: Hashable {
         let service: BLEUUID
@@ -53,13 +50,19 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
         self.targetID = targetID
         self.hooks = hooks
         var table: [Key: String] = [:]
+        var names: [String: [BLEUUID: String]] = [:]
         for (symbol, characteristic) in profile.characteristics {
             guard let service = BLEUUID(string: characteristic.service), let uuid = BLEUUID(string: characteristic.uuid) else {
                 throw ContractError("not a UUID: \(symbol)")
             }
             table[Key(service: service, characteristic: uuid)] = symbol
+            for descriptor in characteristic.descriptors {
+                guard let descriptorUUID = BLEUUID(string: descriptor.uuid) else { throw ContractError("not a UUID: \(symbol)/\(descriptor.name)") }
+                names[symbol, default: [:]][descriptorUUID] = descriptor.name
+            }
         }
         symbols = table
+        descriptorNames = names
         session = try client.session(for: targetID)
     }
 
@@ -95,18 +98,23 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
                     observer.scanResultForTarget()
                 }
             },
-            Task { [symbols] in
-                // services·properties 레인은 같은 원천에서 같은 characteristic 을 고른다
+            Task { [symbols, descriptorNames] in
+                // services·properties·descriptors 레인은 같은 원천에서 같은 characteristic 을 고른다
                 for await list in streams.services {
                     var found: [String: Set<String>] = [:]
+                    var descriptors: [String: [String]] = [:]
                     for service in list {
                         for characteristic in service.characteristics {
                             guard let symbol = symbols[Key(service: service.ref.uuid, characteristic: characteristic.ref.uuid)] else { continue }
                             found[symbol, default: []].formUnion(characteristic.properties.map(Self.contractName))
+                            // 정의에 없는 descriptor 는 뺀다. 같은 기호가 두 번이면 첫 characteristic 을 쓴다
+                            guard descriptors[symbol] == nil else { continue }
+                            descriptors[symbol] = characteristic.descriptors.compactMap { descriptorNames[symbol]?[$0.uuid] }
                         }
                     }
                     observer.services(found.keys)
                     observer.properties(found)
+                    observer.descriptors(descriptors)
                 }
             },
             Task { [symbols] in
@@ -176,13 +184,25 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
         return try await outcome { try await session.unsubscribe(ref) }
     }
 
-    /// iOS 코어에 descriptor API 가 아직 없다(CANDIDATE-32). 결과 줄은 `fail EXCEPTION:BackendError`
+    /// 결과 줄은 `ok <대문자 16진수>`(CANDIDATE-32)
     public func readDescriptor(_ target: DescriptorTarget) async throws -> CallOutcome {
-        throw BackendError.unsupported("readDescriptor")
+        let ref = try Self.ref(target)
+        do {
+            return .descriptorRead(Array(try await session.readDescriptor(ref)))
+        } catch let error as BLEError {
+            return .failed(code: error.failure.code.value)
+        }
     }
 
     public func writeDescriptor(_ target: DescriptorTarget, bytes: [UInt8]) async throws -> CallOutcome {
-        throw BackendError.unsupported("writeDescriptor")
+        let ref = try Self.ref(target)
+        return try await outcome { try await session.writeDescriptor(ref, Data(bytes)) }
+    }
+
+    /// 러너는 정의의 UUID 와 instanceIndex 0 으로 만든다(contract/README §descriptor 호출)
+    private static func ref(_ target: DescriptorTarget) throws -> DescriptorRef {
+        guard let uuid = BLEUUID(string: target.descriptor.uuid) else { throw ContractError("not a UUID: \(target.symbol)") }
+        return DescriptorRef(characteristic: try ref(target.characteristic), uuid: uuid)
     }
 
     public func startScan(filter: BleContract.ScanFilter) async throws -> CallOutcome {

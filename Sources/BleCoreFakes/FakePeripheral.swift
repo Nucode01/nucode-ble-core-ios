@@ -40,7 +40,11 @@ package final class FakePeripheral: PeripheralPort {
 
     private var serviceRefs: [ServiceRef] = []
     private var characteristicRefs: [String: CharacteristicRef] = [:]
-    private var characteristicSpecs: [CharacteristicRef: FakeCharacteristicSpec] = [:]
+    private(set) var characteristicSpecs: [CharacteristicRef: FakeCharacteristicSpec] = [:]
+    /// 이 연결에서 쓴 descriptor 값(FakeDescriptors.swift). 연결마다 비워 정의 값으로 돌아간다
+    var descriptorValues: [DescriptorRef: Data] = [:]
+    /// 받은 descriptor 쓰기 요청 수(시험용: CCCD 쓰기가 플랫폼에 닿지 않는지 본다)
+    package internal(set) var descriptorWriteCalls = 0
 
     private var linked = false
     private var hidden = false
@@ -50,7 +54,7 @@ package final class FakePeripheral: PeripheralPort {
     /// 링크가 새로 생기거나 끊길 때마다 올라간다. 예약된 작업이 옛 링크의 것인지 가린다.
     private var linkGeneration: UInt64 = 0
 
-    private var subscribed: Set<CharacteristicRef> = []
+    private(set) var subscribed: Set<CharacteristicRef> = []
     private var readNotifyOn = false
     private var notificationSequence: UInt32 = 0
 
@@ -130,6 +134,7 @@ package final class FakePeripheral: PeripheralPort {
             device.linkGeneration += 1
             device.rxCount = 0
             device.rxOK = true
+            device.descriptorValues = [:]
             device.central?.deliverDidConnect()
         }
     }
@@ -360,7 +365,7 @@ package final class FakePeripheral: PeripheralPort {
     // MARK: 응답
 
     /// 연결 간격 하나 뒤에 `success` 를 낸다. 링크가 없으면 바로 `failure`, 그 사이 끊기면 아무것도 내지 않는다.
-    private func respond(
+    func respond(
         _ success: @escaping @BLECoreActor (FakePeripheral) -> Void,
         failure: @escaping @BLECoreActor (FakePeripheral, PortError) -> Void
     ) {
@@ -376,7 +381,7 @@ package final class FakePeripheral: PeripheralPort {
     }
 
     /// 요청은 받았지만 기기가 거절한다: 연결 간격 하나 뒤에 `failure`
-    private func reject(_ error: PortError, _ failure: @escaping @BLECoreActor (FakePeripheral, PortError) -> Void) {
+    func reject(_ error: PortError, _ failure: @escaping @BLECoreActor (FakePeripheral, PortError) -> Void) {
         fakeAfter(self, clock: clock, milliseconds: linked ? timing.connectionInterval : 0) { failure($0, error) }
     }
 }

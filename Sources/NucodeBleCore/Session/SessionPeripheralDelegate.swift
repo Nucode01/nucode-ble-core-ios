@@ -49,4 +49,21 @@ final class SessionPeripheralDelegate: PeripheralPortDelegate {
     func peripheralIsReady(toSendWriteWithoutResponse peripheral: any PeripheralPort) {
         session?.peripheralIsReadyToWriteWithoutResponse(peripheral, generation: generation)
     }
+
+    func peripheral(
+        _ peripheral: any PeripheralPort,
+        didDiscoverDescriptors descriptors: [DescriptorRef],
+        for characteristic: CharacteristicRef,
+        error: PortError?
+    ) {
+        session?.peripheralDidDiscoverDescriptors(peripheral, generation: generation, descriptors: descriptors, for: characteristic, error: error)
+    }
+
+    func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?) {
+        session?.peripheralDidUpdateDescriptorValue(peripheral, generation: generation, value: value, for: descriptor, error: error)
+    }
+
+    func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {
+        session?.peripheralDidWriteDescriptorValue(peripheral, generation: generation, for: descriptor, error: error)
+    }
 }

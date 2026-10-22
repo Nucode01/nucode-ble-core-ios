@@ -28,6 +28,12 @@ public protocol BLESession: AnyObject, Sendable {
     func notifications(for characteristic: CharacteristicRef) -> AsyncStream<Data>
     /// 멱등. 의도를 먼저 지우고 CCCD 해제는 best-effort 다
     func unsubscribe(_ characteristic: CharacteristicRef) async throws
+
+    /// Ready 에서만. descriptor 값을 원본 bytes 로 한 번 돌려준다(CCCD 는 2바이트 little-endian). read 와 같은 큐 · 기한 규칙이다(CANDIDATE-32)
+    func readDescriptor(_ descriptor: DescriptorRef) async throws -> Data
+    /// Ready 에서만. 응답 있는 쓰기 한 번, 나누지 않는다(512바이트 초과는 `PAYLOAD_TOO_LARGE`).
+    /// CCCD(0x2902)는 보내지 않고 `DESCRIPTOR_WRITE_NOT_ALLOWED` 다. 구독은 `subscribe`·`unsubscribe` 로 바꾼다
+    func writeDescriptor(_ descriptor: DescriptorRef, _ value: Data) async throws
 }
 
 /// 공개 `BLESession`: 상태 없는 ID 기반 view. core 상태는 `Session` 이 갖는다
@@ -84,5 +90,13 @@ final class SessionHandle: BLESession {
 
     func unsubscribe(_ characteristic: CharacteristicRef) async throws {
         try await session.unsubscribe(characteristic)
+    }
+
+    func readDescriptor(_ descriptor: DescriptorRef) async throws -> Data {
+        try await session.readDescriptor(descriptor)
+    }
+
+    func writeDescriptor(_ descriptor: DescriptorRef, _ value: Data) async throws {
+        try await session.writeDescriptor(descriptor, value)
     }
 }

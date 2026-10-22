@@ -10,12 +10,24 @@ package struct FakeServiceSpec: Sendable {
     package let advertised: Bool
 }
 
+/// 기기 정의 characteristic 의 descriptor 하나(CANDIDATE-32)
+package struct FakeDescriptorSpec: Sendable {
+    package let name: String
+    package let uuid: BLEUUID
+    /// `read`·`write`
+    package let properties: Set<String>
+    /// 연결마다 돌아가는 값. CCCD 는 nil(값은 구독 상태다)
+    package let value: Data?
+}
+
 package struct FakeCharacteristicSpec: Sendable {
     package let symbol: String
     package let service: BLEUUID
     package let uuid: BLEUUID
     /// 기기 정의 어휘(`read`·`write`·`writeWithoutResponse`·`notify`·`indicate`)
     package let properties: Set<String>
+    /// 정의 순서 = 탐색 순서
+    package var descriptors: [FakeDescriptorSpec] = []
 
     /// 기기 정의 어휘 → 공개 타입. 계약의 `write` 는 API 의 `writeWithResponse` 다. 러너의 반대 방향 변환과 같은 사례로 시험한다
     package static let vocabulary: [String: CharacteristicProperty] = [
@@ -72,7 +84,15 @@ package struct FakeDeviceSpec: Sendable {
                     symbol: symbol,
                     service: try uuid(characteristic.service),
                     uuid: try uuid(characteristic.uuid),
-                    properties: Set(characteristic.properties)
+                    properties: Set(characteristic.properties),
+                    descriptors: try characteristic.descriptors.map { descriptor in
+                        FakeDescriptorSpec(
+                            name: descriptor.name,
+                            uuid: try uuid(descriptor.uuid),
+                            properties: Set(descriptor.properties),
+                            value: descriptor.value.map { Data($0) }
+                        )
+                    }
                 )
             }
         )

@@ -53,6 +53,16 @@ package protocol PeripheralPortDelegate: AnyObject {
         error: PortError?
     )
     func peripheralIsReady(toSendWriteWithoutResponse peripheral: any PeripheralPort)
+    /// 참조는 포트가 만든 것이다(포트의 characteristic 참조 + 같은 UUID 사이 순서). 탐색 순서대로 온다
+    func peripheral(
+        _ peripheral: any PeripheralPort,
+        didDiscoverDescriptors descriptors: [DescriptorRef],
+        for characteristic: CharacteristicRef,
+        error: PortError?
+    )
+    /// 값은 원본 bytes 다. Foundation 값을 bytes 로 바꾸는 것은 Driver 몫이다
+    func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?)
+    func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?)
 }
 
 @BLECoreActor
@@ -70,4 +80,9 @@ package protocol PeripheralPort: AnyObject {
     func writeValue(_ data: Data, for characteristic: CharacteristicRef, type: WriteMode)
     func maximumWriteValueLength(for type: WriteMode) -> Int
     func setNotifyValue(_ enabled: Bool, for characteristic: CharacteristicRef)
+    /// 결과는 `didDiscoverDescriptors`
+    func discoverDescriptors(for characteristic: CharacteristicRef)
+    func readValue(for descriptor: DescriptorRef)
+    /// 항상 응답 있는 쓰기다. 결과는 `didWriteValueFor descriptor`
+    func writeValue(_ data: Data, for descriptor: DescriptorRef)
 }

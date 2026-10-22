@@ -1,6 +1,6 @@
 import Foundation
 
-// descriptor 형식(CANDIDATE-32): 기기 정의 `descriptors`, `readDescriptor`·`writeDescriptor` 호출, 백엔드 입구.
+// descriptor 형식(CANDIDATE-32): 기기 정의 `descriptors`, `readDescriptor`·`writeDescriptor` 호출, 백엔드 입구, `descriptors` 레인.
 // Scenario.swift·ScenarioEngine.swift 는 baseline 400줄 초과라 따로 둔다
 
 /// 기기 정의 characteristic 의 `descriptors` 항목
@@ -14,11 +14,11 @@ public struct DescriptorDefinition: Sendable, Equatable {
     /// 연결을 시작할 때의 값. CCCD 와 값을 적지 않은 descriptor 는 nil
     public let value: [UInt8]?
 
-    /// 이름 → 정의. JSON 트리가 키 순서를 잃어 탐색 순서는 담지 않는다
-    static func parseAll(_ objs: JSONObject) throws -> [String: DescriptorDefinition] {
-        var result: [String: DescriptorDefinition] = [:]
+    /// 정의 파일에 적힌 순서의 정의 목록. 이 순서가 sim 가짜 기기의 탐색 순서다(contract/README §sim)
+    static func parseAll(_ objs: JSONObject) throws -> [DescriptorDefinition] {
+        var result: [DescriptorDefinition] = []
         var uuids: Set<String> = []
-        for name in objs.fields.keys.sorted() {
+        for name in objs.keys {
             guard !name.isEmpty, name.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) }) else {
                 throw ContractError("\(objs.path): descriptor name \"\(name)\" must use only lowercase letters and digits")
             }
@@ -46,7 +46,7 @@ public struct DescriptorDefinition: Sendable, Equatable {
                 }
                 value = try parseHex(try d.string("value"), path: "\(d.path).value")
             }
-            result[name] = DescriptorDefinition(name: name, uuid: uuid, properties: properties, value: value)
+            result.append(DescriptorDefinition(name: name, uuid: uuid, properties: properties, value: value))
         }
         return result
     }
@@ -76,22 +76,23 @@ extension CallOutcome {
     }
 }
 
-extension Scenario {
-    /// descriptor 호출이 있거나 `expect`에 `descriptors` 레인이 있다
-    public var usesDescriptors: Bool {
-        expect[.descriptors] != nil || steps.contains { step in
-            guard case .call(let call) = step else { return false }
-            switch call.action {
-            case .readDescriptor, .writeDescriptor: return true
-            default: return false
-            }
+extension ContractLog {
+    /// `descriptors` 레인 모양(README §레인): `{이름=d1+d2,…}`. characteristic 은 이름순, descriptor 이름은 받은 순서(탐색 순서)대로 `+` 로 잇는다.
+    /// 비면 `이름=`
+    public static func renderDescriptors(_ entries: [String: [String]]) -> String {
+        let items = entries.keys.sorted().map { symbol in
+            symbol + "=" + entries[symbol, default: []].joined(separator: "+")
         }
+        return "{" + items.joined(separator: ",") + "}"
     }
+}
 
-    /// iOS 코어에 descriptor API 가 생기기 전(CANDIDATE-32)에는 iOS 에서 통과할 수 없는 draft.
-    /// sim·device 시험이 이 시나리오의 실패를 known issue 로 둔다. 구현 뒤 통과하면 시험이 알린다
-    public var awaitsIosDescriptorSupport: Bool {
-        status == .draft && usesDescriptors
+extension ScenarioObserver {
+    /// `descriptors` 레인. 기기 정의에 있는 characteristic 마다 정의에 있는 descriptor 의 이름(탐색 순서). 첫 값(빈 목록)도 넣는다.
+    /// `services` 와 같은 원천에서 부른다. 시나리오의 `expect`에 이 레인이 없으면 버린다
+    public func descriptors(_ entries: [String: [String]]) {
+        let entry = ContractLog.renderDescriptors(entries)
+        recorder.update(lane: .descriptors) { $0.log.append(entry, to: .descriptors) }
     }
 }
 
@@ -122,7 +123,7 @@ extension StepParser {
         guard let c = profile.characteristics[parts[0]] else {
             throw ContractError("\(o.path).desc: unknown symbol \"\(parts[0])\" in peripheral \"\(profile.name)\"")
         }
-        guard let d = c.descriptors[parts[1]] else {
+        guard let d = c.descriptor(named: parts[1]) else {
             throw ContractError("\(o.path).desc: \"\(parts[0])\" has no descriptor \"\(parts[1])\"")
         }
         guard d.properties.contains(property) else {
