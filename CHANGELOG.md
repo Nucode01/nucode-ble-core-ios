@@ -1,6 +1,6 @@
 # Changelog
 
-## 미출시
+## 0.4.0 (2026-10-22)
 
 ### Breaking changes
 
