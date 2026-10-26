@@ -2,7 +2,7 @@
 
 ## 2.1 Swift Package 추가
 
-**Xcode 앱 프로젝트:** File › Add Package Dependencies… 에서 아래 URL 을 넣고, Dependency Rule 은 `Up to Next Minor Version` 에 `0.4.0` 을 줍니다.
+**Xcode 앱 프로젝트:** File › Add Package Dependencies… 에서 아래 URL 을 넣고, Dependency Rule 은 `Up to Next Minor Version` 에 `0.5.0` 을 줍니다.
 product `NucodeBleCore` 를 앱 target 에 추가합니다.
 
 ```text
@@ -14,7 +14,7 @@ https://github.com/Nucode01/nucode-ble-core-ios.git
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/Nucode01/nucode-ble-core-ios.git", .upToNextMinor(from: "0.4.0")),
+    .package(url: "https://github.com/Nucode01/nucode-ble-core-ios.git", .upToNextMinor(from: "0.5.0")),
 ],
 targets: [
     .target(name: "MyFeature", dependencies: [.product(name: "NucodeBleCore", package: "nucode-ble-core-ios")]),
