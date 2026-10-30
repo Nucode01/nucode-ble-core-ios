@@ -1,5 +1,29 @@
 # Changelog
 
+## 미출시
+
+### Breaking changes
+
+- `BLESession.readRSSI()` 가 생겼다(CANDIDATE-34). Android `BleSession.readRssi` 와 같은 뜻이다.
+  - **fake session 작성자 영향**: `BLESession` 을 직접 구현한 가짜는 컴파일이 깨진다. 함수를 더한다.
+  - 저장소 안 예: `Samples/Demo/Tests` 의 `FakeSession`. Demo 가 0.2.2 고정을 풀 때 깨진다.
+
+```swift
+func readRSSI() async throws -> Int { -50 }
+```
+
+### Added
+
+- `readRSSI() async throws -> Int`: Ready 세션의 RSSI(dBm)를 한 번 읽는다. 주기 읽기는 앱이 한다.
+  - GATT 큐 밖이다. 진행 중인 write 를 기다리지 않고 늦추지도 않는다.
+  - 플랫폼 RSSI 요청은 프로세스 전체에서 한 번에 하나다. 같은 기기의 겹친 호출은 요청 하나의 결과를 나눠 받고, 다른 기기의 호출은 차례를 기다린다.
+  - 진입 검사는 닫힘 `CLIENT_CLOSED` → 어댑터 → Ready 아님 `NOT_READY` 다(contract/states.md §5 의 1~3).
+  - 대기 · 진행 중 해제 · 링크 유실은 `OPERATION_INVALIDATED`, close 는 `CLIENT_CLOSED`, CoreBluetooth 오류는 `GATT_STATUS_FAILED` 다. 호출자 취소는 그 호출만 끝낸다.
+  - 값은 CoreBluetooth 가 준 그대로다. 127(측정 못함)도 버리지 않는다.
+- 실패 코드 `RSSI_READ_TIMEOUT`(`operation`, `transientMayHelp`): 플랫폼에 보낸 때부터 5초 안에 답이 없다. 세션을 끊지 않는다(`OPERATION_TIMEOUT` 과 다르다).
+- 계약 시나리오: sim 49개 PASS. RSSI 3개(`read-rssi-when-ready` · `read-rssi-during-write` · `read-rssi-cancel-then-read`)를 포함한다.
+  실기기 실행은 아직 하지 않았다. CoreBluetooth 가 RSSI 요청을 ATT 작업 뒤에 줄 세우는지는 기기에서 본다.
+
 ## 0.5.0 (2026-10-26)
 
 ### Breaking changes

@@ -24,8 +24,8 @@ package final class Session {
     /// 링크가 아직 없어도 복원 번역기가 받아둔 기기를 넣는다(`RestoreTranslator`). 연결 경로가 이 객체를 그대로 쓴다
     package var peripheral: (any PeripheralPort)?
 
-    /// 연결 상태의 유일한 주인. 바꾸는 곳은 `dispatch` 하나다
-    private var core = ConnectionCore.State()
+    /// 연결 상태의 유일한 주인. 바꾸는 곳은 `dispatch` 하나다(읽기는 진입 검사 SessionAdmission.swift 도 한다)
+    private(set) var core = ConnectionCore.State()
     package var generation: UInt64 { core.generation }
     /// 마지막으로 OS 가 받아들인 연결 의도
     package var intent: ConnectOptions? { core.intent }
@@ -41,9 +41,10 @@ package final class Session {
     private var disconnectWaiter: Waiter<Void>?
     let context: SessionContext
 
-    // GATT 명령. 참조는 공개(instanceIndex) 쪽과 플랫폼(포트) 쪽을 오간다. descriptor 명령은 SessionDescriptors.swift
+    // GATT 명령. 참조는 공개(instanceIndex) 쪽과 플랫폼(포트) 쪽을 오간다.
+    // 진입 검사는 SessionAdmission.swift, descriptor 명령은 SessionDescriptors.swift, RSSI 는 SessionRSSI.swift
     let operations: OperationQueue
-    private var portRefs: [CharacteristicRef: CharacteristicRef] = [:]
+    private(set) var portRefs: [CharacteristicRef: CharacteristicRef] = [:]
     private(set) var portDescriptorRefs: [DescriptorRef: DescriptorRef] = [:]
     private var publicRefs: [CharacteristicRef: CharacteristicRef] = [:]
     private var activeSet: Set<CharacteristicRef> = []
@@ -203,6 +204,7 @@ package final class Session {
         case .closeGattState:
             pendingSubscribes.removeAll()
             operations.invalidate(GattFailure.closed())
+            context.rssiTurn.invalidate(peripheralID, owner: self, GattFailure.closed())
             setActive([])
         case .releasePeripheralOnClose:
             if let peripheral, let central = context.central, peripheral.connectionState != .disconnected {
@@ -412,33 +414,6 @@ package final class Session {
 // MARK: GATT 명령: read, subscribe, 알림
 
 extension Session {
-    /// 진입 검사(states.md §5 명령 진입 검사 순서): 닫힘 → 어댑터(§6) → 세션 Ready 아님(`NOT_READY`) → 참조 없음. 통과하면 포트 참조.
-    /// 판정은 `ConnectionCore.gattAdmission` 이 한다. 어댑터가 `unknown` 일 때만 판정을 기다리고(§6, connect 와 같은 대기),
-    /// 기다린 뒤의 확인은 모두 대기 이후에 한다. 확인과 큐 접수 사이에는 `await` 가 없다
-    func admitGatt(_ characteristic: CharacteristicRef) async throws -> CharacteristicRef {
-        if case .awaitAdapterDecision = ConnectionCore.gattAdmission(core, adapter: context.adapter.current) {
-            let gate = context.adapter.gate()
-            try await withTaskCancellationHandler {
-                try await gate.value()
-            } onCancel: {
-                Task { @BLECoreActor in gate.cancel() }
-            }
-        }
-        switch ConnectionCore.gattAdmission(core, adapter: context.adapter.current) {
-        case .admit:
-            break
-        case .reject(let failure):
-            throw BLEError(failure: failure)
-        case .awaitAdapterDecision:
-            // 판정을 받은 뒤 다시 unknown 이 됐다
-            throw BLEError(failure: AdapterCore.leftReady)
-        }
-        guard let portRef = portRefs[characteristic] else {
-            throw BLEError(failure: BLEFailure(code: .characteristicNotFound, message: "이 기기에 없는 characteristic 이다"))
-        }
-        return portRef
-    }
-
     /// 작업 대기는 마지막 줄의 한 번뿐이다(앞의 진입 검사는 어댑터가 `unknown` 일 때만 기다린다). 호출자가 취소돼도 접수된 작업은 큐 순서대로 끝까지 간다
     package func read(_ characteristic: CharacteristicRef) async throws -> Data {
         let portRef = try await admitGatt(characteristic)
@@ -611,6 +586,7 @@ extension Session {
         pendingSubscribes.removeAll()
         setActive([])
         operations.invalidate(GattFailure.invalidated(message))
+        context.rssiTurn.invalidate(peripheralID, owner: self, GattFailure.invalidated(message))
     }
 
     /// Configuring 에서 구독 의도를 하나씩 복원한다. 실패는 `subscriptionRestoreFailed` 이벤트로 알리고 활성 집합에 넣지 않는다.

@@ -98,6 +98,20 @@ func descriptorExamples(_ session: any BLESession, services: [GATTService]) asyn
     _ = state
 }
 
+func rssiExample(_ session: any BLESession) async {
+    // region guide:rssi
+    // Ready 세션의 RSSI(dBm)를 한 번 읽는다. 주기는 앱이 정한다(라이브러리는 스스로 반복하지 않는다)
+    do {
+        let rssi = try await session.readRSSI()
+        print(rssi == 127 ? "rssi: 측정하지 못함" : "rssi: \(rssi) dBm") // 127 은 iOS 가 재지 못했다는 뜻이다
+    } catch let error as BLEError where error.failure.code == .rssiReadTimeout {
+        print("rssi: 5초 안에 답이 없었다. 연결은 그대로다") // 잠시 뒤 다시 읽어도 된다
+    } catch {
+        print("rssi:", error)
+    }
+    // endregion
+}
+
 func activeSubscriptionsExample(_ session: any BLESession) {
     // region guide:active-subscriptions
     // 이 연결에서 기기가 실제로 켜 준 구독. 연결이 끊기면 빈 집합, 재연결 뒤 복원되면 다시 채워진다

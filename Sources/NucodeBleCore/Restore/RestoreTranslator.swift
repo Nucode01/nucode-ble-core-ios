@@ -105,4 +105,5 @@ final class RestoredPeripheralRelay: PeripheralPortDelegate {
     ) {}
     func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?) {}
     func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {}
+    func peripheral(_ peripheral: any PeripheralPort, didReadRSSI rssi: Int, error: PortError?) {}
 }

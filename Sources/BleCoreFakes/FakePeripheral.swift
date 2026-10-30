@@ -34,8 +34,15 @@ package final class FakePeripheral: PeripheralPort {
     /// `probe.control` 을 읽으면 오는 값과 같은 모양: `4096 ok`
     package var rxCheckLine: String { "\(rxCount) \(rxOK ? "ok" : "bad")" }
 
+    /// RSSI(FakeRSSI.swift): 답할 값과 오류, 답하는지(시험용), 받은 요청 수, 앞 요청에 답하기 전인지
+    package var rssiValue = -50
+    package var rssiError: PortError?
+    package var answersRSSI = true
+    package internal(set) var rssiRequests = 0
+    var rssiPending = false
+
     private let spec: FakeDeviceSpec
-    private let clock: any BLEClock
+    let clock: any BLEClock
     package let timing: FakeTiming
 
     private var serviceRefs: [ServiceRef] = []
@@ -52,7 +59,7 @@ package final class FakePeripheral: PeripheralPort {
     private var pendingConnect = false
     private var attachScheduled = false
     /// 링크가 새로 생기거나 끊길 때마다 올라간다. 예약된 작업이 옛 링크의 것인지 가린다.
-    private var linkGeneration: UInt64 = 0
+    private(set) var linkGeneration: UInt64 = 0
 
     private(set) var subscribed: Set<CharacteristicRef> = []
     private var readNotifyOn = false

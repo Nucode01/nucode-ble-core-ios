@@ -63,6 +63,8 @@ package protocol PeripheralPortDelegate: AnyObject {
     /// 값은 원본 bytes 다. Foundation 값을 bytes 로 바꾸는 것은 Driver 몫이다
     func peripheral(_ peripheral: any PeripheralPort, didUpdateValue value: Data?, for descriptor: DescriptorRef, error: PortError?)
     func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?)
+    /// dBm 그대로다(127 = 측정 못함). error 가 있으면 rssi 는 뜻이 없다
+    func peripheral(_ peripheral: any PeripheralPort, didReadRSSI rssi: Int, error: PortError?)
 }
 
 @BLECoreActor
@@ -85,4 +87,6 @@ package protocol PeripheralPort: AnyObject {
     func readValue(for descriptor: DescriptorRef)
     /// 항상 응답 있는 쓰기다. 결과는 `didWriteValueFor descriptor`
     func writeValue(_ data: Data, for descriptor: DescriptorRef)
+    /// 결과는 `didReadRSSI`. GATT 작업이 아니다(HCI Read RSSI)
+    func readRSSI()
 }

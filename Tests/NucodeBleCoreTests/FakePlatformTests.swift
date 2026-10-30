@@ -17,6 +17,7 @@ private final class Recorder: CentralPortDelegate, PeripheralPortDelegate {
     var writes = 0
     var readyCalls = 0
     var services: [NucodeBleCore.ServiceRef] = []
+    var rssiReads: [(rssi: Int, error: PortError?)] = []
 
     func centralDidUpdateState(_ central: any CentralPort) {
         onCoreQueue()
@@ -94,6 +95,11 @@ private final class Recorder: CentralPortDelegate, PeripheralPortDelegate {
 
     func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {
         onCoreQueue()
+    }
+
+    func peripheral(_ peripheral: any PeripheralPort, didReadRSSI rssi: Int, error: PortError?) {
+        onCoreQueue()
+        rssiReads.append((rssi, error))
     }
 
     private nonisolated func onCoreQueue() {
@@ -322,6 +328,33 @@ final class FakePlatformTests: XCTestCase {
     private func connect2(_ rig: Rig) async {
         rig.central.connect(rig.device)
         await waitUntil("second didConnect") { rig.recorder.connects == 2 }
+    }
+
+    // MARK: RSSI (contract/README §sim 가짜 기기 RSSI 읽기)
+
+    @BLECoreActor
+    func testRSSIAnswersAfterOneIntervalAndIgnoresOverlappingRequest() async throws {
+        let rig = try makeRig()
+        await connect(rig)
+        rig.device.readRSSI()
+        rig.device.readRSSI()
+        XCTAssertTrue(rig.recorder.rssiReads.isEmpty, "15ms 뒤에 답한다")
+        await waitUntil("rssi") { rig.recorder.rssiReads.count == 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(rig.recorder.rssiReads.count, 1, "답하기 전 겹친 요청에는 답하지 않는다")
+        XCTAssertEqual(rig.recorder.rssiReads.first?.rssi, -50)
+        XCTAssertNil(rig.recorder.rssiReads.first?.error ?? nil)
+        XCTAssertEqual(rig.device.rssiRequests, 2)
+        rig.device.readRSSI()
+        await waitUntil("second rssi") { rig.recorder.rssiReads.count == 2 }
+    }
+
+    @BLECoreActor
+    func testRSSIWithoutLinkAnswersWithError() async throws {
+        let rig = try makeRig()
+        rig.device.readRSSI()
+        await waitUntil("rssi error") { rig.recorder.rssiReads.count == 1 }
+        XCTAssertNotNil(rig.recorder.rssiReads.first?.error ?? nil)
     }
 
     // MARK: 어댑터

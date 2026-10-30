@@ -106,6 +106,8 @@ public struct FailureCode: Hashable, Sendable {
     public static let gattOperationDuplicateCallback = FailureCode(value: "GATT_OPERATION_DUPLICATE_CALLBACK", category: .operation, retryability: .unknown)
     /// 작업이 5초 안에 끝나지 않았다. 연결도 끊는다
     public static let operationTimeout = FailureCode(value: "OPERATION_TIMEOUT", category: .operation, retryability: .newConnectionMayHelp)
+    /// `readRSSI` 의 플랫폼 요청이 기한(5초, 요청을 보낸 때부터) 안에 답하지 않았다. 연결은 그대로다
+    public static let rssiReadTimeout = FailureCode(value: "RSSI_READ_TIMEOUT", category: .operation, retryability: .transientMayHelp)
     /// 대기 · 진행 중 작업이 해제 · 끊김으로 끝났다
     public static let operationInvalidated = FailureCode(value: "OPERATION_INVALIDATED", category: .operation, retryability: .newConnectionMayHelp)
     /// 나누기를 끄거나 고정 크기가 한 번 최대 크기를 넘었다. 아무것도 보내지 않았다
@@ -126,7 +128,7 @@ public struct FailureCode: Hashable, Sendable {
         linkTimeout, serviceDiscoveryStartFailed, serviceDiscoveryFailed, serviceDiscoveryTimeout,
         configurationTimeout, disconnectCleanupTimeout, duplicateCharacteristicReference, notReady,
         notConnected, characteristicNotFound, descriptorWriteNotAllowed, gattStatusFailed, gattOperationCallbackMismatch,
-        gattOperationDuplicateCallback, operationTimeout, operationInvalidated, payloadTooLarge,
+        gattOperationDuplicateCallback, operationTimeout, rssiReadTimeout, operationInvalidated, payloadTooLarge,
         clientClosed, cleanupFailure, internalTransportError, gattPayloadObserved,
     ]
 }

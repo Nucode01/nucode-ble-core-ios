@@ -34,6 +34,10 @@ public protocol BLESession: AnyObject, Sendable {
     /// Ready 에서만. 응답 있는 쓰기 한 번, 나누지 않는다(512바이트 초과는 `PAYLOAD_TOO_LARGE`).
     /// CCCD(0x2902)는 보내지 않고 `DESCRIPTOR_WRITE_NOT_ALLOWED` 다. 구독은 `subscribe`·`unsubscribe` 로 바꾼다
     func writeDescriptor(_ descriptor: DescriptorRef, _ value: Data) async throws
+
+    /// Ready 에서만. RSSI(dBm)를 한 번 읽는다. GATT 큐 밖이라 진행 중인 write 를 기다리지 않는다.
+    /// 플랫폼 요청은 프로세스 전체에서 한 번에 하나다. 5초 안에 답이 없으면 `RSSI_READ_TIMEOUT` 이고 연결은 그대로다. 127 은 측정하지 못했다는 뜻이다(CANDIDATE-34)
+    func readRSSI() async throws -> Int
 }
 
 /// 공개 `BLESession`: 상태 없는 ID 기반 view. core 상태는 `Session` 이 갖는다
@@ -98,5 +102,9 @@ final class SessionHandle: BLESession {
 
     func writeDescriptor(_ descriptor: DescriptorRef, _ value: Data) async throws {
         try await session.writeDescriptor(descriptor, value)
+    }
+
+    func readRSSI() async throws -> Int {
+        try await session.readRSSI()
     }
 }

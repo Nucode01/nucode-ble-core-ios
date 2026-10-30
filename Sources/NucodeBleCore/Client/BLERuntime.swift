@@ -28,6 +28,7 @@ package final class BLERuntime: CentralPortDelegate {
         options: BLEOptions,
         environment: BLEEnvironment,
         clock: any BLEClock,
+        rssiTurn: RSSITurn = RSSITurn(),
         centralFactory: @escaping @BLECoreActor @Sendable () -> any CentralPort
     ) {
         self.options = options
@@ -36,7 +37,7 @@ package final class BLERuntime: CentralPortDelegate {
         let adapter = AdapterMonitor(clock: clock)
         let events = EventHub<BLEEvent>()
         let scanner = BLEScanner()
-        let context = SessionContext(adapter: adapter, scanner: scanner, events: events, clock: clock)
+        let context = SessionContext(adapter: adapter, scanner: scanner, events: events, clock: clock, rssiTurn: rssiTurn)
         self.adapter = adapter
         self.events = events
         self.scanner = scanner

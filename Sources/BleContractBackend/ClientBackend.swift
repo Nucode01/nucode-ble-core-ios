@@ -205,6 +205,15 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
         return DescriptorRef(characteristic: try ref(target.characteristic), uuid: uuid)
     }
 
+    /// 결과 줄은 `ok <dBm>`(CANDIDATE-34)
+    public func readRssi() async throws -> CallOutcome {
+        do {
+            return .rssiRead(try await session.readRSSI())
+        } catch let error as BLEError {
+            return .failed(code: error.failure.code.value)
+        }
+    }
+
     public func startScan(filter: BleContract.ScanFilter) async throws -> CallOutcome {
         let uuids = try filter.services.map { ref -> BLEUUID in
             guard let uuid = BLEUUID(string: ref.uuid) else { throw ContractError("not a UUID: \(ref.uuid)") }

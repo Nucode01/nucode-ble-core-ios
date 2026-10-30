@@ -9,10 +9,11 @@ package final class DefaultBLEClient: BLEClient {
         options: BLEOptions = BLEOptions(),
         environment: BLEEnvironment,
         clock: any BLEClock,
+        rssiTurn: @escaping @BLECoreActor @Sendable () -> RSSITurn = { RSSITurn() },
         centralFactory: @escaping @BLECoreActor @Sendable () -> any CentralPort
     ) {
         runtime = runOnCore {
-            BLERuntime(options: options, environment: environment, clock: clock, centralFactory: centralFactory)
+            BLERuntime(options: options, environment: environment, clock: clock, rssiTurn: rssiTurn(), centralFactory: centralFactory)
         }
     }
 

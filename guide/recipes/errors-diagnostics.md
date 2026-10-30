@@ -80,6 +80,7 @@ iOS 가 내는 코드입니다. "어떻게 오나"의 **던짐**은 명령이 `t
 | `DESCRIPTOR_WRITE_NOT_ALLOWED` | CCCD(0x2902)에 `writeDescriptor`. 아무것도 안 보냄. 구독은 `subscribe` · `unsubscribe` 로 | never | 던짐 |
 | `GATT_STATUS_FAILED` | 기기가 작업을 거절 · 실패(권한 · 암호화 부족은 afterEnvironmentChange) | unknown | 던짐 · 이벤트(구독 복원) |
 | `OPERATION_TIMEOUT` | 작업이 5초 안에 안 끝남. **연결도 끊습니다** | newConnectionMayHelp | 던짐 |
+| `RSSI_READ_TIMEOUT` | `readRSSI` 가 5초 안에 답을 받지 못함. 연결은 그대로 | transientMayHelp | 던짐 |
 | `OPERATION_INVALIDATED` | 대기 · 진행 중 작업이 해제 · 끊김으로 끝남 | newConnectionMayHelp | 던짐 |
 | `PAYLOAD_TOO_LARGE` | 나누기 끔 · 고정 크기가 한 번 최대 크기를 넘음, descriptor 값이 512바이트를 넘음. 아무것도 안 보냄 | never | 던짐 |
 | `CLIENT_CLOSED` | 닫힌 client, 또는 `close()` 가 대기 중 명령을 끝냄(세션 상태는 실패가 아니라 `.disconnected(.clientClosed)`) | never | 던짐 |

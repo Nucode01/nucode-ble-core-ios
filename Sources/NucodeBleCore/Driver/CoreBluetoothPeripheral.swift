@@ -114,6 +114,10 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         cbPeripheral.writeValue(data, for: cb)
     }
 
+    func readRSSI() {
+        cbPeripheral.readRSSI()
+    }
+
     // MARK: 참조
 
     private static let unknownReference = PortError(
@@ -268,6 +272,15 @@ final class CoreBluetoothPeripheral: NSObject, PeripheralPort, CBPeripheralDeleg
         BLECoreActor.assumeIsolated {
             guard let ref = descriptorRefs[ObjectIdentifier(descriptor)] else { return }
             delegate?.peripheral(self, didWriteValueFor: ref, error: failure)
+        }
+    }
+
+    /// 값은 그대로 넘긴다(127 = 측정 못함, 버리지 않는다)
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: (any Error)?) {
+        let failure = error.map(PortErrorConversion.portError)
+        let rssi = RSSI.intValue
+        BLECoreActor.assumeIsolated {
+            delegate?.peripheral(self, didReadRSSI: rssi, error: failure)
         }
     }
 

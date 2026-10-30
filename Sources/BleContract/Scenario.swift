@@ -104,6 +104,7 @@ public enum CallAction: Sendable, Equatable {
     case unsubscribe(Characteristic)
     case readDescriptor(DescriptorTarget)
     case writeDescriptor(DescriptorTarget, bytes: [UInt8])
+    case readRssi
     case startScan(ScanFilter)
     case stopScan
     case snapshot
@@ -120,6 +121,7 @@ public enum CallAction: Sendable, Equatable {
         case .unsubscribe(let c): "unsubscribe \(c.symbol)"
         case .readDescriptor(let d): "readDescriptor \(d.symbol)"
         case .writeDescriptor(let d, _): "writeDescriptor \(d.symbol)"
+        case .readRssi: "readRssi"
         case .startScan: "startScan"
         case .stopScan: "stopScan"
         case .snapshot: "snapshot"
@@ -310,9 +312,9 @@ struct StepParser {
             try o.only(common.union(["autoReconnect", "requestedMtu"]))
             try checkRequestedMtu(o)
             action = .connect(autoReconnect: try o.optionalBool("autoReconnect") ?? false)
-        case "disconnect":
+        case "disconnect", "readRssi":
             try o.only(common)
-            action = .disconnect
+            action = name == "disconnect" ? .disconnect : .readRssi
         case "read", "subscribe", "unsubscribe":
             try o.only(common.union(["char"]))
             let c = try characteristic(o)

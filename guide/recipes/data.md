@@ -149,6 +149,27 @@ let state = try await session.readDescriptor(cccd) // 구독 중이면 [0x01, 0x
 - iOS 는 일부 descriptor 값을 숫자 · 문자열로 바꿔 줍니다. 라이브러리가 다시 bytes 로 바꿉니다(숫자는 2바이트 little-endian, 문자열은 UTF-8).
   기기가 0x2901 에 UTF-8 이 아닌 bytes 를 넣었으면 원래 값을 되살릴 수 없습니다(iOS 한계).
 
+## 연결 중 RSSI 읽기
+
+<!-- snippet: rssi -->
+```swift
+// Ready 세션의 RSSI(dBm)를 한 번 읽는다. 주기는 앱이 정한다(라이브러리는 스스로 반복하지 않는다)
+do {
+    let rssi = try await session.readRSSI()
+    print(rssi == 127 ? "rssi: 측정하지 못함" : "rssi: \(rssi) dBm") // 127 은 iOS 가 재지 못했다는 뜻이다
+} catch let error as BLEError where error.failure.code == .rssiReadTimeout {
+    print("rssi: 5초 안에 답이 없었다. 연결은 그대로다") // 잠시 뒤 다시 읽어도 된다
+} catch {
+    print("rssi:", error)
+}
+```
+
+- RSSI 는 GATT 작업이 아닙니다. read · write 줄 밖에서 돌아서 진행 중인 긴 write 를 기다리지 않습니다.
+- 플랫폼 RSSI 요청은 앱 전체에서 한 번에 하나입니다. 같은 기기에 겹쳐 부르면 요청 하나의 결과를 함께 받고, 다른 기기의 호출은 앞 요청이 끝날 때까지 기다립니다.
+- 5초 제한은 플랫폼에 보낸 때부터 셉니다. 넘으면 `RSSI_READ_TIMEOUT` 이고 연결은 끊지 않습니다(write 의 `OPERATION_TIMEOUT` 과 다릅니다).
+- `ready` 가 아니면 `NOT_READY` 입니다. 기다리는 중에 끊기면 `OPERATION_INVALIDATED`, `close()` 하면 `CLIENT_CLOSED` 입니다. 호출한 Task 를 취소하면 그 호출만 끝납니다.
+- 값은 iOS 가 준 dBm 그대로입니다. 127 은 측정하지 못했다는 뜻이고 라이브러리가 버리지 않습니다.
+
 ## 지금 켜져 있는 구독 보기
 
 <!-- snippet: active-subscriptions -->

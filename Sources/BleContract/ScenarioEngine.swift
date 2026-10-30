@@ -124,7 +124,7 @@ public struct ClientSnapshot: Sendable, Equatable {
 
 /// 4단계에서 실제 iOS 라이브러리(sim: 가짜 포트, device: 실기기)로 구현한다.
 /// 단계 순서와 기다림은 엔진이 쥐고, 백엔드는 공개 API 호출과 관찰 전달만 한다
-public protocol ScenarioBackend: DescriptorBackend {
+public protocol ScenarioBackend: DescriptorBackend, RSSIBackend {
     /// 첫 단계 전에 한 번. 관찰 원천을 observer 로 잇는다
     func attach(_ observer: ScenarioObserver) async
 
@@ -346,6 +346,7 @@ public struct ScenarioEngine<Backend: ScenarioBackend>: Sendable {
         case .unsubscribe(let c): try await backend.unsubscribe(c)
         case .readDescriptor(let d): try await backend.readDescriptor(d)
         case .writeDescriptor(let d, let bytes): try await backend.writeDescriptor(d, bytes: bytes)
+        case .readRssi: try await backend.readRssi()
         case .startScan(let filter): try await backend.startScan(filter: filter)
         case .stopScan: try await backend.stopScan()
         case .snapshot: .okWith(try await backend.snapshot().rendered(targetName: target))

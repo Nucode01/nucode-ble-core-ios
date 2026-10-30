@@ -66,4 +66,8 @@ final class SessionPeripheralDelegate: PeripheralPortDelegate {
     func peripheral(_ peripheral: any PeripheralPort, didWriteValueFor descriptor: DescriptorRef, error: PortError?) {
         session?.peripheralDidWriteDescriptorValue(peripheral, generation: generation, for: descriptor, error: error)
     }
+
+    func peripheral(_ peripheral: any PeripheralPort, didReadRSSI rssi: Int, error: PortError?) {
+        session?.peripheralDidReadRSSI(peripheral, rssi: rssi, error: error)
+    }
 }

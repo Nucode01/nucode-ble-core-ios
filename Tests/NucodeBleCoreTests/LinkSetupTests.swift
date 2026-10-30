@@ -94,6 +94,7 @@ private final class ScriptedPeripheral: PeripheralPort {
 
     func readValue(for descriptor: DescriptorRef) {}
     func writeValue(_ data: Data, for descriptor: DescriptorRef) {}
+    func readRSSI() {}
 }
 
 private func describe(_ state: ConnectionState) -> String {
