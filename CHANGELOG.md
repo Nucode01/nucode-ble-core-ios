@@ -1,6 +1,6 @@
 # Changelog
 
-## 미출시
+## 0.6.0 (2026-11-03)
 
 ### Breaking changes
 
