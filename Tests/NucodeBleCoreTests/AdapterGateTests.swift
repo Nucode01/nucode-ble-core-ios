@@ -26,13 +26,21 @@ final class AdapterGateTests: XCTestCase {
 
     // MARK: 대기 상한
 
+    // 기한은 가상 시계로 옮긴다. 판정 기한 Task 가 잠든 것을 확인한 뒤 `advance` 하고, 음성 확인은 settle 뒤에 한다
+
     @BLECoreActor
     func testUnknownBeforeStartFailsAfterTwoSeconds() async {
+        let clock = VirtualClock()
         let central = Support.makeCentral(state: .unknown, authorization: .notDetermined)
-        let client = Support.makeClient { central }
+        let client = Support.makeClient(clock: clock) { central }
         let probe = GateProbe(client.runtime)
-        await Support.sleep(realMilliseconds: Support.realMilliseconds(1500))
+        let armed = await clock.waitForSleepers(1)
+        XCTAssertTrue(armed)
+        clock.advance(by: AdapterCore.unknownWaitLimit - 1)
+        await Support.settle()
         XCTAssertNil(probe.result, "2000ms 전에는 기다린다")
+        XCTAssertEqual(clock.sleepers, 1, "기한이 아직 울리지 않았다")
+        clock.advance(by: 1)
         let result = await probe.wait()
         XCTAssertEqual(result, "ADAPTER_UNAVAILABLE")
         client.close()
@@ -40,11 +48,16 @@ final class AdapterGateTests: XCTestCase {
 
     @BLECoreActor
     func testStartWithinTwoSecondsLetsCommandProceed() async {
+        let clock = VirtualClock()
         let central = Support.makeCentral()
-        let client = Support.makeClient { central }
+        let client = Support.makeClient(clock: clock) { central }
         let probe = GateProbe(client.runtime)
-        await Support.sleep(realMilliseconds: Support.realMilliseconds(500))
+        let armed = await clock.waitForSleepers(1)
+        XCTAssertTrue(armed)
+        clock.advance(by: 500)
+        await Support.settle()
         XCTAssertNil(probe.result)
+        XCTAssertEqual(clock.sleepers, 1)
         client.start()
         let result = await probe.wait()
         XCTAssertEqual(result, "ok")
@@ -53,11 +66,17 @@ final class AdapterGateTests: XCTestCase {
 
     @BLECoreActor
     func testNotDeterminedAfterStartWaitsPastTwoSeconds() async {
+        let clock = VirtualClock()
         let central = Support.makeCentral(state: .unknown, authorization: .notDetermined)
-        let client = Support.makeClient { central }
+        let client = Support.makeClient(clock: clock) { central }
         client.start()
         let probe = GateProbe(client.runtime)
-        await Support.sleep(realMilliseconds: Support.realMilliseconds(3000))
+        let armed = await clock.waitForSleepers(1)
+        XCTAssertTrue(armed)
+        clock.advance(by: 3000)
+        // 기한 판정이 끝난 뒤에 권한을 바꾼다. 늦게 돈 판정이 바뀐 권한을 읽으면 결과가 달라진다
+        let judged = await Support.waitUntil { client.runtime.adapter.waitingPastDeadline == 1 }
+        XCTAssertTrue(judged)
         XCTAssertNil(probe.result, "권한 팝업 동안은 2000ms 를 넘겨도 기다린다")
         central.setAdapter(.poweredOn, authorization: .allowedAlways)
         let result = await probe.wait()
@@ -67,11 +86,16 @@ final class AdapterGateTests: XCTestCase {
 
     @BLECoreActor
     func testPermissionDeniedAfterPopupFailsCommand() async {
+        let clock = VirtualClock()
         let central = Support.makeCentral(state: .unknown, authorization: .notDetermined)
-        let client = Support.makeClient { central }
+        let client = Support.makeClient(clock: clock) { central }
         client.start()
         let probe = GateProbe(client.runtime)
-        await Support.sleep(realMilliseconds: Support.realMilliseconds(2500))
+        let armed = await clock.waitForSleepers(1)
+        XCTAssertTrue(armed)
+        clock.advance(by: 2500)
+        let judged = await Support.waitUntil { client.runtime.adapter.waitingPastDeadline == 1 }
+        XCTAssertTrue(judged)
         XCTAssertNil(probe.result)
         central.setAdapter(.unauthorized, authorization: .denied)
         let result = await probe.wait()

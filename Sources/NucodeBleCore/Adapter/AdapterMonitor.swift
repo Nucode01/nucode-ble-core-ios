@@ -63,6 +63,9 @@ package final class AdapterMonitor {
 
     package var current: AdapterState { states.value }
 
+    /// 기한이 지났는데도 계속 기다리는 판정 수(권한 팝업 예외). 시험이 기한 판정이 끝났는지 보는 신호다
+    package var waitingPastDeadline: Int { core.waiting.filter(\.deadlineReached).count }
+
     /// 어댑터 값이 바뀔 때마다 부른다. 세션이 어댑터 이탈과 복귀를 따라가는 통로다
     package func observe(_ observer: @escaping @BLECoreActor (AdapterState) -> Void) {
         observers.append(observer)

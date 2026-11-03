@@ -4,7 +4,7 @@ import XCTest
 @testable import NucodeBleCore
 
 /// RSSI 차례(contract/states.md §8 RSSI 읽기, CANDIDATE-34): 차례를 플랫폼 결과나 기한 전에 놓지 않는지, 같은 기기 결과 공유, 세션별 무효화.
-/// 기한은 `ScaledClock(scale: 0.05)` 라 5000ms 가 실제 250ms 다
+/// 기한은 `ScaledClock(scale: 0.05)` 라 5000ms 가 실제 250ms 다. 기한 경계를 보는 시험은 `VirtualClock` 으로 시간을 옮긴다
 @BLECoreActor
 final class RSSITurnTests: XCTestCase {
     private let deviceA = PeripheralID(rawValue: "A")
@@ -111,17 +111,27 @@ final class RSSITurnTests: XCTestCase {
     }
 
     func testDeadlineTimesOutAndNextDeadlineCountsFromItsOwnSend() async {
+        let clock = VirtualClock()
         let turn = RSSITurn()
         let starts = Starts()
         let s1 = Owner(), s2 = Owner()
         let a = track(turn.request(deviceA, owner: s1, clock: clock, start: starts.make("A")))
-        try? await Task.sleep(for: .milliseconds(150))
+        let armedA = await clock.waitForSleepers(1)
+        XCTAssertTrue(armedA)
+        clock.advance(by: 3000)
         let b = track(turn.request(deviceB, owner: s2, clock: clock, start: starts.make("B")))
+        await settle()
+        XCTAssertEqual(starts["B"], 0, "B 는 A 의 결과나 기한까지 줄에서 기다린다")
+        clock.advance(by: Deadlines.operation - 3000)
         let timedOut = await waitUntil { a.value != nil }
         XCTAssertTrue(timedOut)
         XCTAssertEqual(a.value, "RSSI_READ_TIMEOUT")
         XCTAssertEqual(starts["B"], 1, "기한이 지나면 차례를 놓는다")
-        try? await Task.sleep(for: .milliseconds(150))
+        let armedB = await clock.waitForSleepers(1)
+        XCTAssertTrue(armedB)
+        clock.advance(by: Deadlines.operation - 1)
+        await settle()
+        XCTAssertEqual(clock.sleepers, 1, "B 의 기한이 아직 울리지 않았다")
         XCTAssertNil(b.value, "B 의 기한은 B 를 보낸 때부터다(줄에서 기다린 시간은 넣지 않는다)")
         XCTAssertFalse(turn.didRead(deviceA, .success(-40)), "늦은 A 결과는 진행 중인 B 를 끝내지 않는다")
         await settle()
