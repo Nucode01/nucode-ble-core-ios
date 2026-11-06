@@ -186,7 +186,7 @@ final class FakePlatformTests: XCTestCase {
 
         rig.central.scanForPeripherals(services: [nusService], allowDuplicates: false)
         await waitUntil("filtered result") { !rig.recorder.discoveries.isEmpty }
-        XCTAssertEqual(rig.recorder.discoveries.first?.name, "Nordic_UART_Service")
+        XCTAssertEqual(rig.recorder.discoveries.first?.name, "BLE_LAB_TEST")
         XCTAssertEqual(rig.recorder.discoveries.first?.services, [nusService])
     }
 

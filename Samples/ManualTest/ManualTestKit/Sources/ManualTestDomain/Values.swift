@@ -129,7 +129,7 @@ public enum ProbeCharacteristic: String, CaseIterable, Codable, Sendable {
 }
 
 public enum ProbeProfile {
-    public static let advertisedName = "Nordic_UART_Service"
+    public static let advertisedName = "BLE_LAB_TEST"
     public static let nusServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     public static let probeServiceUUID = "6e7a0001-5c3a-4b8e-9d1f-0a1b2c3d4e5f"
 }

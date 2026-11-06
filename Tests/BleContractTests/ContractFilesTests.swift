@@ -52,7 +52,7 @@ struct ContractFilesTests {
 
     @Test(.needsContract) func probeProfile() throws {
         let probe = try Contract.probe()
-        #expect(probe.advertisedName == "Nordic_UART_Service")
+        #expect(probe.advertisedName == "BLE_LAB_TEST")
         #expect(probe.characteristics["probe.control"]?.runnerOnly == true)
         #expect(probe.characteristics["probe.value"]?.properties == ["read", "notify"])
     }

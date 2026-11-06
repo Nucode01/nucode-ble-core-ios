@@ -10,7 +10,7 @@ final class ManualTestUITests: XCTestCase {
     let app = XCUIApplication(bundleIdentifier: "kr.co.nucode.ble.ManualTest")
     let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    static let deviceName = "Nordic_UART_Service"
+    static let deviceName = "BLE_LAB_TEST"
 
     override func setUp() {
         continueAfterFailure = false

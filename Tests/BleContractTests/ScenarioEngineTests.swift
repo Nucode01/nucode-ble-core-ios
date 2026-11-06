@@ -345,7 +345,7 @@ struct ExtensionLaneTests {
 
     @Test(.needsContract) func scanLanesAndFoundFirstResultPerScan() async throws {
         let report = try await run("""
-            { "call": "startScan", "filter": { "name": "Nordic_UART_Service" } },
+            { "call": "startScan", "filter": { "name": "BLE_LAB_TEST" } },
             { "await": "found", "count": 1 },
             { "call": "stopScan" },
             { "call": "startScan" },

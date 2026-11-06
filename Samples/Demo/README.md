@@ -42,10 +42,10 @@ Xcode 에서 열어도 됩니다: `open BLEDemo.xcodeproj` 후 실기기를 골�
 
 ## 시연 절차 (nRF52840 DK + 시험 펌웨어)
 
-시험 펌웨어(`peripheral_uart`)는 `Nordic_UART_Service` 라는 이름으로 광고하고 **연결을 하나만** 받습니다.
+시험 펌웨어(`peripheral_uart`)는 `BLE_LAB_TEST` 라는 이름으로 광고하고 **연결을 하나만** 받습니다.
 
 0. **준비.** 다른 앱(예: `Samples/ManualTest` 의 등록)이 DK 를 붙잡고 있으면 스캔에 보이지 않습니다. RTT `STATUS` 로 `conn=0` 을 확인하거나 그 앱의 연결을 끊습니다.
-1. **스캔.** "스캔" → 목록에 `Nordic_UART_Service` 와 RSSI · `NUS` 표시가 보입니다. "NUS 서비스만" 을 끄면 주변의 모든 광고가 보입니다.
+1. **스캔.** "스캔" → 목록에 `BLE_LAB_TEST` 와 RSSI · `NUS` 표시가 보입니다. "NUS 서비스만" 을 끄면 주변의 모든 광고가 보입니다.
 2. **연결.** 기기를 눌러 터미널로 가서 "연결" → 상태가 `연결 중 → 서비스 찾는 중 → 설정 중 → 준비됨` 으로 바뀝니다.
 3. **송수신.** 빠른 명령 `IT:STATUS` → 보낸 줄 하나와 `IT|STATUS|part=LINK…` · `part=SUB…` · `part=RX…` 받은 줄 세 개.
    빠른 명령은 이 시험 펌웨어 전용입니다. 다른 기기에서는 입력창으로 그 기기의 명령을 보냅니다.

@@ -4,7 +4,7 @@ NucodeBleCore 의 릴리스 수동 시험(전달 계획 §6)을 iPhone 에서 �
 비행기 모드, 재부팅, 시스템 종료 뒤 복원 재실행)을 사람이 일으키고, 앱은 그동안 일어난 일을 **시간순 기록으로 파일에 남긴다**.
 백그라운드 재실행 중에 일어난 일도 나중에 앱을 열어 볼 수 있다. 공개 API 만 쓴다.
 
-- 시험 기기: nRF52840 DK, `contract/peripherals/probe.json` (광고 이름 `Nordic_UART_Service`, NUS 서비스 UUID 광고)
+- 시험 기기: nRF52840 DK, `contract/peripherals/probe.json` (광고 이름 `BLE_LAB_TEST`, NUS 서비스 UUID 광고)
 - 번들 ID `kr.co.nucode.ble.ManualTest`, 표시 이름 "BLE 수동 시험", iOS 17+
 - 상태 복원: `BLEOptions(restoreIdentifier: "kr.co.nucode.ble.ManualTest.central")`, `UIBackgroundModes: bluetooth-central`
 
@@ -49,7 +49,7 @@ xcrun devicectl device process launch --device 00008020-0008642C1138003A kr.co.n
 
 ## 화면
 
-- **기기**: 이름 앞부분(기본 `Nordic_UART_Service`) 또는 NUS 서비스 UUID 로 스캔. 줄을 누르면 시험 대상으로 고른다.
+- **기기**: 이름 앞부분(기본 `BLE_LAB_TEST`) 또는 NUS 서비스 UUID 로 스캔. 줄을 누르면 시험 대상으로 고른다.
 - **세션**: 어댑터·스캔·연결 상태, Ready 횟수(이번 실행), `activeSubscriptions`, 마지막 알림(수·시각·값). autoReconnect,
   연결/해제, probe.value 구독/해제/읽기, NUS rx 쓰기. **앱 시작 등록** 저장/해제.
 - **기록**: 모든 사건의 시간순 기록(`L<실행 번호> 시각 [종류] 내용`). 종류로 거른다. 지난 실행의 줄은 주황색 머리글이다.
