@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-11)
+
+`ScanResult` 공개 생성자에 필수 인자가 생겨 minor 를 올렸다(Breaking).
 
 ### Breaking changes
 
@@ -17,7 +19,8 @@ ScanResult(peripheralID: id, rssi: -50, advertisement: ad, timestampNanos: 0)
   - CoreBluetooth 는 시각을 주지 않는다. 코어가 `didDiscover` 콜백 때 단조 시계(`ContinuousClock`, 잠든 시간 포함)를 읽는다.
   - 컨트롤러 수신 시각이 아니라 콜백 시각이라 큐 지연만큼 늦다. 기준점은 프로세스마다 다르다.
   - Android 값(`elapsedRealtimeNanos` 기준)과 기준이 달라 서로 비교하지 않는다.
-- 계약 러너: 값 레인 `scanTime`(`none`·`ok`·`flat`·`back`)과 draft 시나리오 `scan-time-increases`. sim PASS, 실기기 실행은 아직 하지 않았다.
+- 계약 러너: 값 레인 `scanTime`(`none`·`ok`·`flat`·`back`)과 draft 시나리오 `scan-time-increases`. sim 과 iPhone XR 에서 PASS 했다(nRF52840 peripheral_uart 펌웨어 abab6e4, `scanTime` none → ok).
+- 측정 프로브: `DeviceTests` 의 scheme `ScanIntervalProbe`. lowLatency 10초 동안 받은 결과 수와 간격을 `PROBE|ios|scanInterval` 줄로 낸다. 계약 실행에는 들어가지 않는다.
 
 ## 0.6.0 (2026-11-03)
 
