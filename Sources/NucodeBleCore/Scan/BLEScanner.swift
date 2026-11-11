@@ -22,15 +22,20 @@ package final class BLEScanner {
         let peripheral: any PeripheralPort
         let advertisement: AdvertisementData
         let rssi: Int
+        let timestampNanos: Int64
     }
 
+    /// 결과 시각을 읽는 시계(CANDIDATE-36c)
+    private let clock: any BLEClock
     private var central: (any CentralPort)?
     /// 스캔 수명 상태의 유일한 주인. 대입은 `dispatch` 안에서만 한다
     private var core = ScanCore.State()
     /// 내부 참여자의 결과 전달 클로저(순서 없음, 순서는 Core 가 정한다)
     private var handlers: [UInt64: DiscoverHandler] = [:]
 
-    package init() {}
+    package init(clock: any BLEClock) {
+        self.clock = clock
+    }
 
     package var isClosed: Bool { ScanCore.isClosed(core) }
     package var isUserScanning: Bool { ScanCore.isUserScanning(core) }
@@ -91,7 +96,8 @@ package final class BLEScanner {
     // MARK: 플랫폼 콜백
 
     package func didDiscover(_ peripheral: any PeripheralPort, advertisement: AdvertisementData, rssi: Int) {
-        dispatch(.discovered(advertisement), discovery: Discovery(peripheral: peripheral, advertisement: advertisement, rssi: rssi))
+        let discovery = Discovery(peripheral: peripheral, advertisement: advertisement, rssi: rssi, timestampNanos: clock.nowNanoseconds())
+        dispatch(.discovered(advertisement), discovery: discovery)
     }
 
     // MARK: 닫기
@@ -132,7 +138,10 @@ package final class BLEScanner {
             break
         case .emitResult:
             guard let discovery else { break }
-            results.emit(ScanResult(peripheralID: discovery.peripheral.id, rssi: discovery.rssi, advertisement: discovery.advertisement))
+            results.emit(ScanResult(
+                peripheralID: discovery.peripheral.id, rssi: discovery.rssi, advertisement: discovery.advertisement,
+                timestampNanos: discovery.timestampNanos
+            ))
         case .deliverInternal(let id):
             guard let discovery, let handler = handlers[id] else { break }
             handler(discovery.peripheral, discovery.advertisement, discovery.rssi)

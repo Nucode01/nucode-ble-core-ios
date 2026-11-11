@@ -36,7 +36,7 @@ package final class BLERuntime: CentralPortDelegate {
         self.centralFactory = centralFactory
         let adapter = AdapterMonitor(clock: clock)
         let events = EventHub<BLEEvent>()
-        let scanner = BLEScanner()
+        let scanner = BLEScanner(clock: clock)
         let context = SessionContext(adapter: adapter, scanner: scanner, events: events, clock: clock, rssiTurn: rssiTurn)
         self.adapter = adapter
         self.events = events

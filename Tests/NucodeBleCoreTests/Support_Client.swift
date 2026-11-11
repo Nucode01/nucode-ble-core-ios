@@ -72,7 +72,9 @@ final class VirtualClock: BLEClock, @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var now = 0
+    private var nanos: Int64 = 0
+    /// 밀리초 시각. 나노초에서 내림으로 얻는다
+    private var now: Int { Int(nanos / 1_000_000) }
     private var lastID: UInt64 = 0
     private var pending: [Sleeper] = []
     /// 등록 전에 취소된 sleep
@@ -82,6 +84,8 @@ final class VirtualClock: BLEClock, @unchecked Sendable {
     var sleepers: Int { lock.withLock { pending.count } }
 
     func nowMilliseconds() -> Int { lock.withLock { now } }
+
+    func nowNanoseconds() -> Int64 { lock.withLock { nanos } }
 
     func sleep(milliseconds: Int) async throws {
         let id = lock.withLock { lastID += 1; return lastID }
@@ -108,8 +112,13 @@ final class VirtualClock: BLEClock, @unchecked Sendable {
 
     /// 시간을 `milliseconds` 옮기고 깰 시각이 된 sleep 을 깰 시각 순서로 깨운다
     func advance(by milliseconds: Int) {
+        advance(nanoseconds: Int64(milliseconds) * 1_000_000)
+    }
+
+    /// 시간을 나노초로 옮긴다. 1ms 아래 해상도가 필요한 시험(스캔 결과 시각)에 쓴다
+    func advance(nanoseconds: Int64) {
         let due = lock.withLock { () -> [Sleeper] in
-            now += milliseconds
+            nanos += nanoseconds
             let due = pending.filter { $0.wake <= now }.sorted { $0.wake < $1.wake }
             pending.removeAll { $0.wake <= now }
             return due

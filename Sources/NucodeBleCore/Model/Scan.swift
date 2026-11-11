@@ -42,11 +42,15 @@ public struct ScanResult: Sendable {
     public let rssi: Int
     /// 광고 내용
     public let advertisement: AdvertisementData
+    /// 결과를 받은 시각(나노초). 코어가 `didDiscover` 콜백 때 단조 시계(`ContinuousClock`, 잠든 시간 포함)로 읽는다.
+    /// 컨트롤러 수신 시각이 아니라 콜백 시각이다. 기준점이 프로세스마다 달라 결과 사이의 차이에만 쓴다
+    public let timestampNanos: Int64
     /// 시험 · 가짜 구현용. 라이브러리는 스캔 결과에서 만든다
-    public init(peripheralID: PeripheralID, rssi: Int, advertisement: AdvertisementData) {
+    public init(peripheralID: PeripheralID, rssi: Int, advertisement: AdvertisementData, timestampNanos: Int64) {
         self.peripheralID = peripheralID
         self.rssi = rssi
         self.advertisement = advertisement
+        self.timestampNanos = timestampNanos
     }
 }
 

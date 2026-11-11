@@ -95,7 +95,7 @@ public final class ClientBackend: ScenarioBackend, @unchecked Sendable {
             },
             Task {
                 for await result in streams.results where result.peripheralID == targetID {
-                    observer.scanResultForTarget()
+                    observer.scanResultForTarget(timestampNanos: result.timestampNanos)
                 }
             },
             Task { [symbols, descriptorNames] in

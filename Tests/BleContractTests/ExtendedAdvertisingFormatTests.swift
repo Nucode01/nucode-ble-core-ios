@@ -34,10 +34,11 @@ struct ExtendedAdvertisingFormatTests {
         }
     }
 
-    @Test func androidAdvIsAnExtensionLaneBetweenAndroidMtuAndPeer() {
+    /// 2026-11-11 에 androidAdv 와 peer 사이에 scanTime(CANDIDATE-36c)이 들어왔다
+    @Test func androidAdvIsAnExtensionLaneBetweenAndroidMtuAndScanTime() {
         let order = Lane.allCases
         #expect(order.firstIndex(of: .androidAdv)! == order.firstIndex(of: .androidMtu)! + 1)
-        #expect(order.firstIndex(of: .peer)! == order.firstIndex(of: .androidAdv)! + 1)
+        #expect(order.firstIndex(of: .scanTime)! == order.firstIndex(of: .androidAdv)! + 1)
         #expect(Lane.androidAdv.isExtension)
     }
 

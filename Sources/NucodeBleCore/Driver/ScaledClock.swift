@@ -18,6 +18,12 @@ package struct ScaledClock: BLEClock {
         return Int(real / scale)
     }
 
+    package func nowNanoseconds() -> Int64 {
+        let elapsed = ContinuousClock.now - origin
+        let real = Double(elapsed.components.seconds) * 1e9 + Double(elapsed.components.attoseconds) / 1e9
+        return Int64(real / scale)
+    }
+
     package func sleep(milliseconds: Int) async throws {
         let nanoseconds = Int64(Double(max(0, milliseconds)) * scale * 1_000_000)
         try await Task.sleep(for: .nanoseconds(nanoseconds))

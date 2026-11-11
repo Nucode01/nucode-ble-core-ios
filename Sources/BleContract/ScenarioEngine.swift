@@ -76,14 +76,15 @@ public struct ScenarioObserver: Sendable {
         recorder.update(lane: .services) { $0.log.append(entry, to: .services) }
     }
 
-    /// 대상 기기의 스캔 결과 하나. 열린 창(`startScan` 직전부터)의 첫 결과만 `found` 레인에 남는다.
-    /// 다른 기기의 결과는 넣지 않는다
-    public func scanResultForTarget() {
+    /// 대상 기기의 스캔 결과 하나와 그 `timestampNanos`. 열린 창(`startScan` 직전부터)의 첫 결과만 `found` 레인에 남는다.
+    /// 모든 결과가 `scanTime` 레인에 들어간다. 다른 기기의 결과는 넣지 않는다
+    public func scanResultForTarget(timestampNanos: Int64) {
         recorder.update(lane: .found) { s in
             guard s.foundWindowOpen else { return }
             s.foundWindowOpen = false
             s.log.append(s.targetName, to: .found)
         }
+        scanTime(timestampNanos)
     }
 }
 
@@ -135,7 +136,7 @@ public protocol ScenarioBackend: DescriptorBackend, RSSIBackend {
     func write(_ char: Characteristic, bytes: [UInt8], withResponse: Bool, chunking: WriteChunking) async throws -> CallOutcome
     func subscribe(_ char: Characteristic) async throws -> CallOutcome
     func unsubscribe(_ char: Characteristic) async throws -> CallOutcome
-    /// 스캔 시작. 결과를 observer 의 `scanResultForTarget()`으로 알린다
+    /// 스캔 시작. 결과를 observer 의 `scanResultForTarget(timestampNanos:)`으로 알린다
     func startScan(filter: ScanFilter) async throws -> CallOutcome
     func stopScan() async throws -> CallOutcome
     func snapshot() async throws -> ClientSnapshot
@@ -181,6 +182,7 @@ public struct ScenarioEngine<Backend: ScenarioBackend>: Sendable {
 
     public func run(_ scenario: Scenario) async -> ScenarioReport {
         let recorder = Recorder(enabled: Set(scenario.expect.keys), targetName: scenario.peripheral.name)
+        recorder.update(lane: .scanTime) { $0.log.append(ScanTimeLane.start, to: .scanTime) }
         await backend.attach(ScenarioObserver(recorder: recorder))
 
         let calls = AsyncCalls()
@@ -384,6 +386,7 @@ final class Recorder: @unchecked Sendable {
         /// `startScan` 직전에 열리고 대상 기기의 첫 결과에서 닫힌다
         var foundWindowOpen = false
         var targetName = ""
+        var scanTime = ScanTimeLane()
     }
 
     private struct Waiter {

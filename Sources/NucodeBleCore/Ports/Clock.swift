@@ -5,6 +5,8 @@ import Foundation
 package protocol BLEClock: Sendable {
     /// 이 시계가 만들어진 뒤 흐른 시간(밀리초, 배율을 뺀 계약 시간)
     func nowMilliseconds() -> Int
+    /// 이 시계가 만들어진 뒤 흐른 시간(나노초, 배율을 뺀 계약 시간). 잠든 시간도 세고 줄지 않는다
+    func nowNanoseconds() -> Int64
     /// 계약 시간 `milliseconds` 만큼 기다린다. 호출자가 취소되면 `CancellationError`
     func sleep(milliseconds: Int) async throws
 }

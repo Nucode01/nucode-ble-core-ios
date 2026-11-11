@@ -27,8 +27,19 @@ actor FakeBackend: ScenarioBackend {
     /// 각본: 스캔 결과를 내는 기기 수(대상 기기 결과가 여러 번 와도 첫 결과 하나만 남아야 한다)
     static let allSymbols = ["nus.rx", "nus.tx", "probe.control", "probe.value"]
 
-    init(_ script: Script = .normal) {
+    /// 대상 결과 시각. startScan 마다 앞에서 둘씩 꺼낸다. 다 쓰면 1 씩 늘어나는 값을 쓴다
+    private var scanTimes: [Int64]
+    private var nextScanTime: Int64 = 1
+
+    init(_ script: Script = .normal, scanTimes: [Int64] = []) {
         self.script = script
+        self.scanTimes = scanTimes
+    }
+
+    private func takeScanTime() -> Int64 {
+        if !scanTimes.isEmpty { return scanTimes.removeFirst() }
+        defer { nextScanTime += 1 }
+        return nextScanTime
     }
 
     func attach(_ observer: ScenarioObserver) {
@@ -96,10 +107,10 @@ actor FakeBackend: ScenarioBackend {
         observer?.scan("Scanning")
         // 같은 기기가 여러 번 보고돼도 창의 첫 결과만 남는다
         let observer = observer
+        let times = [takeScanTime(), takeScanTime()]
         Task {
             try? await Task.sleep(for: .milliseconds(1))
-            observer?.scanResultForTarget()
-            observer?.scanResultForTarget()
+            for time in times { observer?.scanResultForTarget(timestampNanos: time) }
         }
         return .ok
     }

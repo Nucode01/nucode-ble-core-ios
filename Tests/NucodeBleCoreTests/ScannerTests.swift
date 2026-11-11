@@ -292,4 +292,27 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(scanState(client), "Idle")
         client.close()
     }
+
+    // MARK: 결과 시각 (CANDIDATE-36c)
+
+    /// 결과 시각은 didDiscover 때 주입 시계의 nowNanoseconds 다. 500ns 가 남아 ms 해상도로는 맞출 수 없다
+    @BLECoreActor
+    func testResultTimestampIsClockTimeAtDidDiscover() async throws {
+        let clock = VirtualClock()
+        let central = RecordingCentral(inner: Support.makeCentral())
+        let client = Support.makeClient(clock: clock) { central }
+        client.start()
+        var iterator = client.scanResults.makeAsyncIterator()
+        try await client.startScan(request: request())
+
+        clock.advance(nanoseconds: 7_000_500)
+        central.deliver(AdvertisementData(localName: "a"))
+        clock.advance(by: 5)
+        central.deliver(AdvertisementData(localName: "b"))
+        let first = await iterator.next()
+        let second = await iterator.next()
+        XCTAssertEqual(first?.timestampNanos, 7_000_500)
+        XCTAssertEqual(second?.timestampNanos, 12_000_500)
+        client.close()
+    }
 }

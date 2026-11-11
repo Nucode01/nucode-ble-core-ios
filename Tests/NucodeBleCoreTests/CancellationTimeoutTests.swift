@@ -13,6 +13,8 @@ final class CancellationTimeoutTests: XCTestCase {
 
         func nowMilliseconds() -> Int { 0 }
 
+        func nowNanoseconds() -> Int64 { 0 }
+
         func sleep(milliseconds: Int) async throws {
             await withCheckedContinuation { continuation in
                 lock.lock()

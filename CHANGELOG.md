@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- `ScanResult.timestampNanos: Int64` 가 생겼다(CANDIDATE-36c). 생성자 마지막 인자이고 기본값이 없다.
+  - **가짜 작성자 영향**: `ScanResult(peripheralID:rssi:advertisement:)` 를 직접 만드는 앱 시험·가짜는 컴파일이 깨진다. 시각을 넘긴다.
+
+```swift
+ScanResult(peripheralID: id, rssi: -50, advertisement: ad, timestampNanos: 0)
+```
+
+### Added
+
+- `ScanResult.timestampNanos`: 결과를 받은 시각(나노초). 결과 사이의 시간 차이에만 쓴다.
+  - CoreBluetooth 는 시각을 주지 않는다. 코어가 `didDiscover` 콜백 때 단조 시계(`ContinuousClock`, 잠든 시간 포함)를 읽는다.
+  - 컨트롤러 수신 시각이 아니라 콜백 시각이라 큐 지연만큼 늦다. 기준점은 프로세스마다 다르다.
+  - Android 값(`elapsedRealtimeNanos` 기준)과 기준이 달라 서로 비교하지 않는다.
+- 계약 러너: 값 레인 `scanTime`(`none`·`ok`·`flat`·`back`)과 draft 시나리오 `scan-time-increases`. sim PASS, 실기기 실행은 아직 하지 않았다.
+
 ## 0.6.0 (2026-11-03)
 
 ### Breaking changes
