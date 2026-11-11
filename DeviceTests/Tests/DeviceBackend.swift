@@ -56,6 +56,7 @@ enum DeviceBackend {
         case .notify(let count): "NOTIFY \(count)"
         case .readNotify(let on): "READ_NOTIFY \(on ? "ON" : "OFF")"
         case .rxCheck: nil
+        case .extAdv(let ms): "ADV_EXT_FOR \(ms)"
         }
     }
 

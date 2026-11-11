@@ -68,7 +68,8 @@ enum SimContract {
                 case .linkDropHide(let ms): await central.peripheral.linkDropHide(milliseconds: ms)
                 case .notify(let count): await central.peripheral.notify(count: count)
                 case .readNotify(let on): await central.peripheral.readNotify(on: on)
-                case .rxCheck: break
+                // extAdv 는 Android 전용 시나리오에만 있어 iOS sim 에서 돌지 않는다
+                case .rxCheck, .extAdv: break
                 }
             },
             rxCheck: { await central.peripheral.rxCheckLine },

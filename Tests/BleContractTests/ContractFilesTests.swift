@@ -27,6 +27,15 @@ struct ContractFilesTests {
         #expect(s.expect[.adTypes]?.last == "{01,07,09}")
     }
 
+    /// extended 광고 시나리오(CANDIDATE-36b)는 Android 전용이라 iOS 실행 대상이 아니다
+    @Test(.needsContract) func extendedAdvertisingScenariosAreAndroidOnly() throws {
+        for id in ["scan-extended-finds-ext-set", "scan-extended-reports-legacy"] {
+            let s = try Contract.dir.loadScenario(id: id)
+            #expect(s.platforms == [.android], "\(id)")
+            #expect(s.expect[.androidAdv] != nil, "\(id)")
+        }
+    }
+
     @Test(.needsContract) func adTypesLaneInDiffIgnoreIsAccepted() throws {
         let s = try Contract.scenario(LoaderRejectionTests.scenario(
             expect: #"{ "adTypes": [] }"#,

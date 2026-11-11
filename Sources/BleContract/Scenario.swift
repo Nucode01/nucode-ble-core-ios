@@ -156,6 +156,8 @@ public enum DeviceEvent: Sendable, Equatable {
     case notify(count: Int)
     case readNotify(on: Bool)
     case rxCheck
+    /// Android 전용(CANDIDATE-36b). 펌웨어가 `ms` 동안 extended 광고 세트를 켠다
+    case extAdv(ms: Int)
 
     public var name: String {
         switch self {
@@ -164,6 +166,7 @@ public enum DeviceEvent: Sendable, Equatable {
         case .notify: "notify"
         case .readNotify: "readNotify"
         case .rxCheck: "rxCheck"
+        case .extAdv: "extAdv"
         }
     }
 }
@@ -216,6 +219,7 @@ extension Scenario {
             }
             expect[lane] = try expectObj.stringArray(key)
         }
+        try checkAndroidAdvLane(Set(expect.keys), platforms: platforms, path: source)
 
         // 확장 레인을 기다리는 단계는 그 레인이 expect 에 있어야 하므로 expect 를 먼저 읽는다
         var parser = StepParser(profile: profile, runsOn: runsOn, platforms: platforms, expectLanes: Set(expect.keys))
@@ -363,7 +367,8 @@ struct StepParser {
         case "readDescriptor", "writeDescriptor":
             action = try descriptorCall(name, o, common: common)
         case "startScan":
-            try o.only(common.union(["filter"]))
+            try o.only(common.union(["filter", "extendedAdvertising"]))
+            try checkExtendedAdvertising(o)
             action = .startScan(try scanFilter(o))
         case "stopScan", "snapshot", "close":
             try o.only(common)
@@ -404,7 +409,7 @@ struct StepParser {
                 throw ContractError("\(o.path).name: no earlier async call named \"\(name)\"")
             }
             condition = .result(name: name)
-        case "active", "adapter", "scan", "services", "adTypes", "writeLimits", "androidMtu":
+        case "active", "adapter", "scan", "services", "adTypes", "writeLimits", "androidMtu", "androidAdv":
             try o.only(["await", "is", "timeoutMs"])
             let lane = Lane(rawValue: kind)!
             try requireInExpect(lane, o)
@@ -444,6 +449,8 @@ struct StepParser {
             try o.only(["device"])
             try requireInExpect(.peer, o, what: "rxCheck")
             return .rxCheck
+        case "extAdv":
+            return try parseExtAdv(o)
         default:
             throw ContractError("\(o.path).device: unknown device event \"\(kind)\"")
         }

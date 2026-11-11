@@ -156,7 +156,7 @@ actor FakeBackend: ScenarioBackend {
             for _ in 0..<count { observer?.notification("probe.value") }
         case .linkDrop, .linkDropHide:
             observer?.state("Disconnected(Failed:LINK_FAILED)")
-        case .readNotify, .rxCheck:
+        case .readNotify, .rxCheck, .extAdv:
             break
         }
     }
