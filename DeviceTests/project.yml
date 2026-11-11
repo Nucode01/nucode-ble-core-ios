@@ -41,7 +41,9 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - Tests
+      # 측정 프로브는 자기 시험 대상(ScanIntervalProbeTests)에만 넣어 계약 실행에 끼지 않게 한다
+      - path: Tests
+        excludes: [ScanIntervalProbe.swift]
       # run-device.sh 가 계약 폴더를 복사해 둔다(깨끗한 checkout 에서는 .gitkeep 만 있는 빈 폴더). 기기는 Mac 경로를 못 읽으므로 시험 번들 리소스로 넣는다
       - path: Contract
         type: folder
@@ -55,6 +57,18 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.probe.ContractDeviceTests
+  # 스캔 콜백 간격 측정(CANDIDATE-36c). 실행: xcodebuild test -scheme ScanIntervalProbe
+  ScanIntervalProbeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/ScanIntervalProbe.swift]
+    dependencies:
+      - target: ContractHost
+      - package: NucodeBleCore
+        product: NucodeBleCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.nucode.probe.ScanIntervalProbeTests
 schemes:
   ContractDeviceTests:
     build:
@@ -63,3 +77,10 @@ schemes:
         ContractDeviceTests: [test]
     test:
       targets: [ContractDeviceTests]
+  ScanIntervalProbe:
+    build:
+      targets:
+        ContractHost: all
+        ScanIntervalProbeTests: [test]
+    test:
+      targets: [ScanIntervalProbeTests]
